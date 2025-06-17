@@ -1,0 +1,27 @@
+# ROI Agent Configuration
+
+# Agent settings
+agent:
+  update_interval: 15  # seconds
+  data_retention_days: 30
+  
+# Web UI settings
+web:
+  host: "127.0.0.1"
+  port: 5002
+  debug: true
+  
+# Data settings
+data:
+  format: "json"
+  compression: false
+  
+# Logging
+logging:
+  level: "info"
+  file: "logs/roi-agent.log"
+
+# Productivity analysis
+analytics:
+  focus_threshold: 300  # minimum seconds to consider as focused work
+  break_threshold: 1800 # seconds to consider as a break between sessions
