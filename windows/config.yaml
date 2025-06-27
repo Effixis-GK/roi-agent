@@ -1,0 +1,87 @@
+# ROI Agent Windows Configuration
+
+# Agent settings
+agent:
+  update_interval: 15  # seconds
+  data_retention_days: 30
+  
+# Web UI settings
+web:
+  host: "127.0.0.1"
+  port: 5002
+  debug: true
+  
+# Data settings
+data:
+  format: "json"
+  compression: false
+  base_dir: "~/.roiagent"  # Windows: %USERPROFILE%\.roiagent
+  
+# Logging
+logging:
+  level: "info"
+  file: "logs/roi-agent.log"
+
+# Productivity analysis
+analytics:
+  focus_threshold: 300  # minimum seconds to consider as focused work
+  break_threshold: 1800 # seconds to consider as a break between sessions
+
+# Windows specific settings
+windows:
+  # System processes to ignore (case-insensitive)
+  ignore_processes:
+    - "System"
+    - "Registry" 
+    - "smss"
+    - "csrss"
+    - "wininit"
+    - "winlogon"
+    - "services"
+    - "lsass"
+    - "svchost"
+    - "spoolsv"
+    - "explorer"
+    - "dwm"
+    - "conhost"
+    - "audiodg"
+    - "dllhost"
+    - "rundll32"
+    - "taskhostw"
+    - "SearchIndexer"
+    - "WmiPrvSE"
+    - "msdtc"
+  
+  # Application categories for better analysis
+  categories:
+    productivity:
+      - "notepad"
+      - "notepad++"
+      - "code"
+      - "devenv"
+      - "sublime_text"
+      - "atom"
+      - "pycharm"
+      - "intellij"
+    
+    communication:
+      - "teams"
+      - "slack"
+      - "discord"
+      - "skype"
+      - "zoom"
+      - "outlook"
+    
+    browsers:
+      - "chrome"
+      - "firefox"
+      - "edge"
+      - "opera"
+      - "safari"
+    
+    entertainment:
+      - "spotify"
+      - "vlc"
+      - "steam"
+      - "netflix"
+      - "youtube"
