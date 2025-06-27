@@ -1,27 +1,26 @@
-# ROI Agent Configuration
-
-# Agent settings
-agent:
-  update_interval: 15  # seconds
+# ROI Agent Enhanced Configuration
+# Real data only - no test data
+monitor:
+  interval: 15  # seconds
   data_retention_days: 30
+  use_real_data_only: true
   
-# Web UI settings
+network:
+  monitor_ports: [80, 443, 8080, 3000, 5000, 8000, 9000]
+  monitor_protocols: ["HTTP", "HTTPS", "TCP"]
+  dns_resolution: true
+  packet_capture: true
+  real_connections_only: true
+  
 web:
   host: "127.0.0.1"
   port: 5002
-  debug: true
+  auto_refresh: 30  # seconds
   
-# Data settings
-data:
-  format: "json"
-  compression: false
+security:
+  require_accessibility: true
+  local_only: true
   
-# Logging
-logging:
-  level: "info"
-  file: "logs/roi-agent.log"
-
-# Productivity analysis
-analytics:
-  focus_threshold: 300  # minimum seconds to consider as focused work
-  break_threshold: 1800 # seconds to consider as a break between sessions
+debug:
+  enable_test_data: false  # Always use real data
+  log_level: "info"
