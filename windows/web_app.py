@@ -106,6 +106,11 @@ class AppMonitorUI:
             if usage_time > 0:
                 apps.append({
                     "name": app_name,
+                    "display_name": app_data.get("display_name", app_name),
+                    "category": app_data.get("category", "other"),
+                    "vendor": app_data.get("vendor", "Unknown"),
+                    "icon_path": app_data.get("icon_path", "default.ico"),
+                    "window_title": app_data.get("window_title", ""),
                     "time": usage_time,
                     "formatted_time": self.format_time(usage_time),
                     "foreground_time": app_data.get("foreground_time", 0),
@@ -119,6 +124,46 @@ class AppMonitorUI:
         # Sort by usage time (descending)
         apps.sort(key=lambda x: x["time"], reverse=True)
         return apps
+    
+    def get_category_summary(self, data):
+        """Get summary data grouped by category"""
+        if not data or not data.get("apps"):
+            return {}
+        
+        categories = {}
+        for app_name, app_data in data["apps"].items():
+            category = app_data.get("category", "other")
+            if category not in categories:
+                categories[category] = {
+                    "name": category,
+                    "display_name": self.get_category_display_name(category),
+                    "apps": [],
+                    "total_foreground": 0,
+                    "total_background": 0,
+                    "total_focus": 0,
+                    "app_count": 0
+                }
+            
+            categories[category]["apps"].append(app_name)
+            categories[category]["total_foreground"] += app_data.get("foreground_time", 0)
+            categories[category]["total_background"] += app_data.get("background_time", 0)
+            categories[category]["total_focus"] += app_data.get("focus_time", 0)
+            categories[category]["app_count"] += 1
+        
+        return categories
+    
+    def get_category_display_name(self, category):
+        """Get display name for category"""
+        category_names = {
+            "communication": "コミュニケーション",
+            "productivity": "生産性",
+            "development": "開発",
+            "browser": "ブラウザ",
+            "entertainment": "エンターテイメント",
+            "utility": "ユーティリティ",
+            "other": "その他"
+        }
+        return category_names.get(category, category.title())
 
 # Initialize UI handler
 ui = AppMonitorUI()
@@ -166,6 +211,22 @@ def api_dates():
     
     dates.sort(reverse=True)
     return jsonify(dates)
+
+@app.route('/api/categories')
+def api_categories():
+    """Get category summary data"""
+    date = request.args.get('date')
+    
+    data = ui.load_daily_data(date)
+    if data is None:
+        return jsonify({"error": "Failed to load data"}), 500
+    
+    categories = ui.get_category_summary(data)
+    
+    return jsonify({
+        "date": data["date"],
+        "categories": categories
+    })
 
 # Create templates directory and save template
 def create_template():
