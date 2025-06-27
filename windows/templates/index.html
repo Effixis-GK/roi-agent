@@ -113,6 +113,22 @@
             background: #005a9e;
         }
         
+        .view-toggle {
+            display: flex;
+            gap: 10px;
+            margin-left: auto;
+        }
+        
+        .toggle-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 20px;
+        }
+        
+        .toggle-btn.active {
+            background: #107c10;
+        }
+        
         .summary {
             background: white;
             border-radius: 8px;
@@ -207,6 +223,7 @@
             display: flex;
             flex-direction: column;
             gap: 4px;
+            flex: 1;
         }
         
         .app-name {
@@ -215,9 +232,74 @@
             font-size: 1.1em;
         }
         
+        .app-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-size: 0.85em;
+            color: #605e5c;
+        }
+        
+        .app-vendor {
+            font-weight: 500;
+        }
+        
+        .app-window-title {
+            font-style: italic;
+            color: #8a8886;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
         .app-status {
             display: flex;
             gap: 6px;
+            flex-wrap: wrap;
+        }
+        
+        .category-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .category-communication {
+            background: #e1f5fe;
+            color: #0277bd;
+        }
+        
+        .category-productivity {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .category-development {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+        
+        .category-browser {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+        
+        .category-entertainment {
+            background: #fce4ec;
+            color: #c2185b;
+        }
+        
+        .category-utility {
+            background: #f1f8e9;
+            color: #558b2f;
+        }
+        
+        .category-other {
+            background: #f5f5f5;
+            color: #616161;
         }
         
         .status-badge {
@@ -359,6 +441,19 @@
             }
         }
         
+        function getCategoryDisplayName(category) {
+            const categoryNames = {
+                'communication': 'コミュニケーション',
+                'productivity': '生産性',
+                'development': '開発',
+                'browser': 'ブラウザ',
+                'entertainment': 'エンターテイメント',
+                'utility': 'ユーティリティ',
+                'other': 'その他'
+            };
+            return categoryNames[category] || category;
+        }
+        
         function updateStatus() {
             fetch('/api/status')
                 .then(response => response.json())
@@ -455,8 +550,13 @@
                     <div class="app-info">
                         <div class="app-rank">${index + 1}</div>
                         <div class="app-details">
-                            <div class="app-name">${app.name}</div>
+                            <div class="app-name">${app.display_name || app.name}</div>
+                            <div class="app-meta">
+                                ${app.vendor && app.vendor !== 'Unknown' ? `<div class="app-vendor">${app.vendor}</div>` : ''}
+                                ${app.window_title ? `<div class="app-window-title">${app.window_title}</div>` : ''}
+                            </div>
                             <div class="app-status">
+                                <span class="category-badge category-${app.category}">${getCategoryDisplayName(app.category)}</span>
                                 ${app.is_active ? '<span class="status-badge active">実行中</span>' : ''}
                                 ${app.is_focused ? '<span class="status-badge focused">フォーカス中</span>' : ''}
                             </div>

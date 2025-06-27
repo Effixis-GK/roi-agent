@@ -37,6 +37,11 @@ const (
 // AppUsage represents application usage data
 type AppUsage struct {
 	Name           string    `json:"name"`
+	DisplayName    string    `json:"display_name"`
+	Category       string    `json:"category"`
+	Vendor         string    `json:"vendor"`
+	IconPath       string    `json:"icon_path"`
+	WindowTitle    string    `json:"window_title"`
 	ForegroundTime int64     `json:"foreground_time"` // seconds
 	BackgroundTime int64     `json:"background_time"` // seconds
 	FocusTime      int64     `json:"focus_time"`      // seconds
@@ -213,6 +218,208 @@ func isSystemProcess(processName string) bool {
 	return false
 }
 
+// AppInfo represents application metadata
+type AppInfo struct {
+	DisplayName string
+	Category    string
+	Vendor      string
+	IconPath    string
+}
+
+// getAppInfo returns detailed information about an application
+func getAppInfo(processName string) AppInfo {
+	appDatabase := map[string]AppInfo{
+		// Communication Apps
+		"slack": {
+			DisplayName: "Slack",
+			Category:    "communication",
+			Vendor:      "Slack Technologies",
+			IconPath:    "slack.ico",
+		},
+		"teams": {
+			DisplayName: "Microsoft Teams",
+			Category:    "communication",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "teams.ico",
+		},
+		"discord": {
+			DisplayName: "Discord",
+			Category:    "communication",
+			Vendor:      "Discord Inc.",
+			IconPath:    "discord.ico",
+		},
+		"zoom": {
+			DisplayName: "Zoom",
+			Category:    "communication",
+			Vendor:      "Zoom Video Communications",
+			IconPath:    "zoom.ico",
+		},
+		"skype": {
+			DisplayName: "Skype",
+			Category:    "communication",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "skype.ico",
+		},
+
+		// Microsoft Office Apps
+		"winword": {
+			DisplayName: "Microsoft Word",
+			Category:    "productivity",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "word.ico",
+		},
+		"excel": {
+			DisplayName: "Microsoft Excel",
+			Category:    "productivity",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "excel.ico",
+		},
+		"powerpnt": {
+			DisplayName: "Microsoft PowerPoint",
+			Category:    "productivity",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "powerpoint.ico",
+		},
+		"outlook": {
+			DisplayName: "Microsoft Outlook",
+			Category:    "communication",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "outlook.ico",
+		},
+		"onenote": {
+			DisplayName: "Microsoft OneNote",
+			Category:    "productivity",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "onenote.ico",
+		},
+
+		// Development Tools
+		"code": {
+			DisplayName: "Visual Studio Code",
+			Category:    "development",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "vscode.ico",
+		},
+		"devenv": {
+			DisplayName: "Visual Studio",
+			Category:    "development",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "visualstudio.ico",
+		},
+		"notepad++": {
+			DisplayName: "Notepad++",
+			Category:    "development",
+			Vendor:      "Notepad++ Team",
+			IconPath:    "notepadpp.ico",
+		},
+		"git": {
+			DisplayName: "Git",
+			Category:    "development",
+			Vendor:      "Git SCM",
+			IconPath:    "git.ico",
+		},
+
+		// Web Browsers
+		"chrome": {
+			DisplayName: "Google Chrome",
+			Category:    "browser",
+			Vendor:      "Google LLC",
+			IconPath:    "chrome.ico",
+		},
+		"firefox": {
+			DisplayName: "Mozilla Firefox",
+			Category:    "browser",
+			Vendor:      "Mozilla Foundation",
+			IconPath:    "firefox.ico",
+		},
+		"msedge": {
+			DisplayName: "Microsoft Edge",
+			Category:    "browser",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "edge.ico",
+		},
+		"iexplore": {
+			DisplayName: "Internet Explorer",
+			Category:    "browser",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "ie.ico",
+		},
+
+		// Media & Entertainment
+		"spotify": {
+			DisplayName: "Spotify",
+			Category:    "entertainment",
+			Vendor:      "Spotify AB",
+			IconPath:    "spotify.ico",
+		},
+		"vlc": {
+			DisplayName: "VLC Media Player",
+			Category:    "entertainment",
+			Vendor:      "VideoLAN",
+			IconPath:    "vlc.ico",
+		},
+		"wmplayer": {
+			DisplayName: "Windows Media Player",
+			Category:    "entertainment",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "wmp.ico",
+		},
+
+		// System & Utilities
+		"notepad": {
+			DisplayName: "Notepad",
+			Category:    "utility",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "notepad.ico",
+		},
+		"calc": {
+			DisplayName: "Calculator",
+			Category:    "utility",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "calc.ico",
+		},
+		"cmd": {
+			DisplayName: "Command Prompt",
+			Category:    "utility",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "cmd.ico",
+		},
+		"powershell": {
+			DisplayName: "PowerShell",
+			Category:    "utility",
+			Vendor:      "Microsoft Corporation",
+			IconPath:    "powershell.ico",
+		},
+	}
+
+	processNameLower := strings.ToLower(processName)
+	if info, exists := appDatabase[processNameLower]; exists {
+		return info
+	}
+
+	// Default info for unknown applications
+	return AppInfo{
+		DisplayName: strings.Title(processName),
+		Category:    "other",
+		Vendor:      "Unknown",
+		IconPath:    "default.ico",
+	}
+}
+
+// getWindowTitle gets the window title for the foreground window
+func getWindowTitle(hwnd uintptr) string {
+	buf := make([]uint16, 256)
+	ret, _, _ := procGetWindowTextW.Call(
+		hwnd,
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	if ret == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(buf)
+}
+
 // updateAppUsage updates usage data for all apps
 func (a *Agent) updateAppUsage() {
 	now := time.Now()
@@ -278,9 +485,24 @@ func (a *Agent) updateAppUsage() {
 	for appName := range runningApps {
 		if _, exists := a.dailyData.Apps[appName]; !exists {
 			isFocused := (appName == foregroundApp)
+			appInfo := getAppInfo(appName)
+
+			// Get window title if this is the focused app
+			windowTitle := ""
+			if isFocused {
+				hwnd, _, _ := procGetForegroundWindow.Call()
+				if hwnd != 0 {
+					windowTitle = getWindowTitle(hwnd)
+				}
+			}
 
 			newApp := &AppUsage{
 				Name:           appName,
+				DisplayName:    appInfo.DisplayName,
+				Category:       appInfo.Category,
+				Vendor:         appInfo.Vendor,
+				IconPath:       appInfo.IconPath,
+				WindowTitle:    windowTitle,
 				ForegroundTime: 0,
 				BackgroundTime: 0,
 				FocusTime:      0,
@@ -300,6 +522,14 @@ func (a *Agent) updateAppUsage() {
 			}
 
 			a.dailyData.Apps[appName] = newApp
+		} else {
+			// Update window title for existing focused app
+			if appName == foregroundApp {
+				hwnd, _, _ := procGetForegroundWindow.Call()
+				if hwnd != 0 {
+					a.dailyData.Apps[appName].WindowTitle = getWindowTitle(hwnd)
+				}
+			}
 		}
 	}
 
