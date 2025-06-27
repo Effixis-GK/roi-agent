@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROI Agent Enhanced - アプリ&ネットワーク監視</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f7;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #ff3b30;
+        }
+        
+        .status-indicator.running {
+            background-color: #30d158;
+        }
+        
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .control-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .control-group label {
+            font-weight: 600;
+            color: #1d1d1f;
+        }
+        
+        select, button {
+            padding: 8px 16px;
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            background: white;
+            font-size: 14px;
+        }
+        
+        button {
+            background: #007aff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        .tab-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #f2f2f7;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px 20px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 600;
+            color: #8e8e93;
+            transition: all 0.2s;
+        }
+        
+        .tab.active {
+            color: #007aff;
+            border-bottom: 2px solid #007aff;
+        }
+        
+        .tab:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-item {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .summary-item.network {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .summary-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .summary-label {
+            opacity: 0.9;
+            font-size: 0.9em;
+        }
+        
+        .ranking {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        .ranking h3 {
+            color: #1d1d1f;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+        
+        .item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #f2f2f7;
+            transition: background-color 0.2s;
+        }
+        
+        .item:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .item:last-child {
+            border-bottom: none;
+        }
+        
+        .item-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+        
+        .item-rank {
+            background: #007aff;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+        
+        .item-details {
+            flex: 1;
+        }
+        
+        .item-name {
+            font-weight: 600;
+            color: #1d1d1f;
+            margin-bottom: 4px;
+        }
+        
+        .item-meta {
+            font-size: 0.9em;
+            color: #8e8e93;
+        }
+        
+        .item-badges {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        
+        .badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+        
+        .badge.active {
+            background: #e8f5e8;
+            color: #30d158;
+        }
+        
+        .badge.focused {
+            background: #e8f0ff;
+            color: #007aff;
+        }
+        
+        .badge.https {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge.http {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .item-value {
+            font-weight: 700;
+            color: #007aff;
+            font-size: 1.1em;
+            text-align: right;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8e8e93;
+        }
+        
+        .error {
+            background: #ffe6e6;
+            color: #d70015;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .summary-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .control-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .tabs {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 ROI Agent Enhanced</h1>
+            <p class="subtitle">アプリケーション使用時間 + ネットワーク通信監視</p>
+            <div class="status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="statusText">ステータス確認中...</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="dateSelect">📅 日付:</label>
+                <select id="dateSelect">
+                    <option value="">今日</option>
+                </select>
+                
+                <button onclick="refreshData()">🔄 更新</button>
+                <button onclick="showDomainAnalysis()">🌐 ドメイン分析</button>
+            </div>
+        </div>
+        
+        <div class="tab-container">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('apps')">📱 アプリケーション</div>
+                <div class="tab" onclick="switchTab('network')">🌐 ネットワーク</div>
+                <div class="tab" onclick="switchTab('combined')">📊 統合ビュー</div>
+            </div>
+            
+            <!-- アプリケーションタブ -->
+            <div class="tab-content active" id="apps-content">
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <div class="summary-value" id="appForeground">0h 0m</div>
+                        <div class="summary-label">フォアグラウンド時間</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value" id="appFocus">0h 0m</div>
+                        <div class="summary-label">フォーカス時間</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value" id="appBackground">0h 0m</div>
+                        <div class="summary-label">バックグラウンド時間</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value" id="totalApps">0</div>
+                        <div class="summary-label">アクティブアプリ</div>
+                    </div>
+                </div>
+                
+                <div class="ranking">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 id="appRankingTitle">アプリケーション使用時間ランキング</h3>
+                        <select id="appCategorySelect" onchange="refreshData()">
+                            <option value="foreground_time">フォアグラウンド時間</option>
+                            <option value="focus_time">フォーカス時間</option>
+                            <option value="background_time">バックグラウンド時間</option>
+                        </select>
+                    </div>
+                    <div id="appRankingContent" class="loading">データを読み込み中...</div>
+                </div>
+            </div>
+            
+            <!-- ネットワークタブ -->
+            <div class="tab-content" id="network-content">
+                <div class="summary-grid">
+                    <div class="summary-item network">
+                        <div class="summary-value" id="networkDuration">0h 0m</div>
+                        <div class="summary-label">総接続時間</div>
+                    </div>
+                    <div class="summary-item network">
+                        <div class="summary-value" id="networkBytesSent">0B</div>
+                        <div class="summary-label">送信データ量</div>
+                    </div>
+                    <div class="summary-item network">
+                        <div class="summary-value" id="networkBytesReceived">0B</div>
+                        <div class="summary-label">受信データ量</div>
+                    </div>
+                    <div class="summary-item network">
+                        <div class="summary-value" id="networkConnections">0</div>
+                        <div class="summary-label">接続数</div>
+                    </div>
+                </div>
+                
+                <div class="ranking">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 id="networkRankingTitle">ネットワーク接続ランキング</h3>
+                        <select id="networkCategorySelect" onchange="refreshData()">
+                            <option value="duration">接続時間</option>
+                            <option value="bytes_sent">送信データ量</option>
+                            <option value="bytes_received">受信データ量</option>
+                        </select>
+                    </div>
+                    <div id="networkRankingContent" class="loading">データを読み込み中...</div>
+                </div>
+            </div>
+            
+            <!-- 統合ビュータブ -->
+            <div class="tab-content" id="combined-content">
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <div class="summary-value" id="combinedAppTime">0h 0m</div>
+                        <div class="summary-label">アプリ総使用時間</div>
+                    </div>
+                    <div class="summary-item network">
+                        <div class="summary-value" id="combinedNetworkTime">0h 0m</div>
+                        <div class="summary-label">ネットワーク総時間</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value" id="combinedProductivity">0%</div>
+                        <div class="summary-label">生産性指標</div>
+                    </div>
+                    <div class="summary-item network">
+                        <div class="summary-value" id="combinedDataUsage">0B</div>
+                        <div class="summary-label">総データ使用量</div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="ranking">
+                        <h3>🏆 アプリ使用時間 Top 5</h3>
+                        <div id="topAppsContent" class="loading">読み込み中...</div>
+                    </div>
+                    <div class="ranking">
+                        <h3>🌐 ネットワーク接続 Top 5</h3>
+                        <div id="topNetworkContent" class="loading">読み込み中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentData = null;
+        let currentTab = 'apps';
+        
+        function formatTime(seconds) {
+            if (seconds < 60) {
+                return `${seconds}s`;
+            } else if (seconds < 3600) {
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${minutes}m ${secs}s`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                return `${hours}h ${minutes}m`;
+            }
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes < 1024) {
+                return `${bytes}B`;
+            } else if (bytes < 1024 * 1024) {
+                return `${(bytes / 1024).toFixed(1)}KB`;
+            } else if (bytes < 1024 * 1024 * 1024) {
+                return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+            } else {
+                return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+            }
+        }
+        
+        function switchTab(tabName) {
+            // Update tab appearance
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`${tabName}-content`).classList.add('active');
+            
+            currentTab = tabName;
+            refreshData();
+        }
+        
+        function updateStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const indicator = document.getElementById('statusIndicator');
+                    const text = document.getElementById('statusText');
+                    
+                    if (data.running && data.accessibility_ok) {
+                        indicator.classList.add('running');
+                        text.textContent = 'エージェント動作中 - 監視アクティブ';
+                    } else if (data.running && !data.accessibility_ok) {
+                        indicator.classList.remove('running');
+                        text.textContent = 'エージェント動作中 - アクセシビリティ権限が必要';
+                    } else {
+                        indicator.classList.remove('running');
+                        text.textContent = data.error || 'エージェント停止中';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('statusText').textContent = 'ステータス確認に失敗';
+                });
+        }
+        
+        function loadDates() {
+            fetch('/api/dates')
+                .then(response => response.json())
+                .then(dates => {
+                    const select = document.getElementById('dateSelect');
+                    select.innerHTML = '<option value="">今日</option>';
+                    
+                    dates.forEach(date => {
+                        const option = document.createElement('option');
+                        option.value = date;
+                        option.textContent = date;
+                        select.appendChild(option);
+                    });
+                });
+        }
+        
+        function loadData() {
+            const date = document.getElementById('dateSelect').value;
+            const appCategory = document.getElementById('appCategorySelect').value;
+            const networkCategory = document.getElementById('networkCategorySelect').value;
+            
+            const params = new URLSearchParams();
+            if (date) params.append('date', date);
+            params.append('app_category', appCategory);
+            params.append('network_category', networkCategory);
+            params.append('type', currentTab === 'combined' ? 'both' : currentTab);
+            
+            fetch(`/api/data?${params}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
+                    
+                    currentData = data;
+                    updateDisplay(data);
+                })
+                .catch(error => {
+                    showError(`データの読み込みに失敗: ${error.message}`);
+                });
+        }
+        
+        function updateDisplay(data) {
+            if (currentTab === 'apps' || currentTab === 'combined') {
+                updateAppSummary(data);
+                if (data.app_ranking) {
+                    updateAppRanking(data.app_ranking, data.app_category);
+                }
+            }
+            
+            if (currentTab === 'network' || currentTab === 'combined') {
+                updateNetworkSummary(data);
+                if (data.network_ranking) {
+                    updateNetworkRanking(data.network_ranking, data.network_category);
+                }
+            }
+            
+            if (currentTab === 'combined') {
+                updateCombinedView(data);
+            }
+        }
+        
+        function updateAppSummary(data) {
+            if (data.app_total) {
+                document.getElementById('appForeground').textContent = 
+                    formatTime(data.app_total.foreground_time || 0);
+                document.getElementById('appFocus').textContent = 
+                    formatTime(data.app_total.focus_time || 0);
+                document.getElementById('appBackground').textContent = 
+                    formatTime(data.app_total.background_time || 0);
+                document.getElementById('totalApps').textContent = 
+                    data.app_ranking ? data.app_ranking.length : 0;
+            }
+        }
+        
+        function updateNetworkSummary(data) {
+            if (data.network_total) {
+                document.getElementById('networkDuration').textContent = 
+                    formatTime(data.network_total.total_duration || 0);
+                document.getElementById('networkBytesSent').textContent = 
+                    formatBytes(data.network_total.total_bytes_sent || 0);
+                document.getElementById('networkBytesReceived').textContent = 
+                    formatBytes(data.network_total.total_bytes_received || 0);
+                document.getElementById('networkConnections').textContent = 
+                    data.network_total.unique_connections || 0;
+            }
+        }
+        
+        function updateAppRanking(apps, category) {
+            const categoryNames = {
+                'foreground_time': 'フォアグラウンド時間',
+                'focus_time': 'フォーカス時間',
+                'background_time': 'バックグラウンド時間'
+            };
+            
+            document.getElementById('appRankingTitle').textContent = 
+                `アプリケーション ${categoryNames[category]} ランキング`;
+            
+            const content = document.getElementById('appRankingContent');
+            
+            if (apps.length === 0) {
+                content.innerHTML = '<div class="loading">データがありません</div>';
+                return;
+            }
+            
+            const html = apps.map((app, index) => `
+                <div class="item">
+                    <div class="item-info">
+                        <div class="item-rank">${index + 1}</div>
+                        <div class="item-details">
+                            <div class="item-name">${app.name}</div>
+                            <div class="item-meta">
+                                F: ${formatTime(app.foreground_time)} | 
+                                フォーカス: ${formatTime(app.focus_time)}
+                            </div>
+                            <div class="item-badges">
+                                ${app.is_active ? '<span class="badge active">アクティブ</span>' : ''}
+                                ${app.is_focused ? '<span class="badge focused">フォーカス中</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="item-value">${app.formatted_time}</div>
+                </div>
+            `).join('');
+            
+            content.innerHTML = html;
+        }
+        
+        function updateNetworkRanking(connections, category) {
+            const categoryNames = {
+                'duration': '接続時間',
+                'bytes_sent': '送信データ量',
+                'bytes_received': '受信データ量'
+            };
+            
+            document.getElementById('networkRankingTitle').textContent = 
+                `ネットワーク ${categoryNames[category]} ランキング`;
+            
+            const content = document.getElementById('networkRankingContent');
+            
+            if (connections.length === 0) {
+                content.innerHTML = '<div class="loading">データがありません</div>';
+                return;
+            }
+            
+            const html = connections.map((conn, index) => `
+                <div class="item">
+                    <div class="item-info">
+                        <div class="item-rank">${index + 1}</div>
+                        <div class="item-details">
+                            <div class="item-name">${conn.domain}</div>
+                            <div class="item-meta">
+                                ${conn.app_name} | ポート: ${conn.port}
+                            </div>
+                            <div class="item-badges">
+                                <span class="badge ${conn.protocol.toLowerCase()}">${conn.protocol}</span>
+                                ${conn.is_active ? '<span class="badge active">接続中</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="item-value">${conn.formatted_value}</div>
+                </div>
+            `).join('');
+            
+            content.innerHTML = html;
+        }
+        
+        function updateCombinedView(data) {
+            // 統合ビューの更新
+            const appTotal = data.app_total || {};
+            const networkTotal = data.network_total || {};
+            
+            const totalAppTime = appTotal.foreground_time || 0;
+            const totalNetworkTime = networkTotal.total_duration || 0;
+            const totalDataUsage = (networkTotal.total_bytes_sent || 0) + (networkTotal.total_bytes_received || 0);
+            
+            // 生産性指標計算（フォーカス時間 / 総時間）
+            const productivity = totalAppTime > 0 ? Math.round((appTotal.focus_time || 0) / totalAppTime * 100) : 0;
+            
+            document.getElementById('combinedAppTime').textContent = formatTime(totalAppTime);
+            document.getElementById('combinedNetworkTime').textContent = formatTime(totalNetworkTime);
+            document.getElementById('combinedProductivity').textContent = `${productivity}%`;
+            document.getElementById('combinedDataUsage').textContent = formatBytes(totalDataUsage);
+            
+            // Top 5 アプリ
+            if (data.app_ranking) {
+                const topApps = data.app_ranking.slice(0, 5).map((app, index) => `
+                    <div class="item">
+                        <div class="item-info">
+                            <div class="item-rank">${index + 1}</div>
+                            <div class="item-details">
+                                <div class="item-name">${app.name}</div>
+                            </div>
+                        </div>
+                        <div class="item-value">${app.formatted_time}</div>
+                    </div>
+                `).join('');
+                document.getElementById('topAppsContent').innerHTML = topApps || '<div class="loading">データなし</div>';
+            }
+            
+            // Top 5 ネットワーク
+            if (data.network_ranking) {
+                const topNetwork = data.network_ranking.slice(0, 5).map((conn, index) => `
+                    <div class="item">
+                        <div class="item-info">
+                            <div class="item-rank">${index + 1}</div>
+                            <div class="item-details">
+                                <div class="item-name">${conn.domain}</div>
+                            </div>
+                        </div>
+                        <div class="item-value">${conn.formatted_value}</div>
+                    </div>
+                `).join('');
+                document.getElementById('topNetworkContent').innerHTML = topNetwork || '<div class="loading">データなし</div>';
+            }
+        }
+        
+        function showError(message) {
+            const errorHtml = `<div class="error">エラー: ${message}</div>`;
+            
+            if (currentTab === 'apps') {
+                document.getElementById('appRankingContent').innerHTML = errorHtml;
+            } else if (currentTab === 'network') {
+                document.getElementById('networkRankingContent').innerHTML = errorHtml;
+            } else {
+                document.getElementById('topAppsContent').innerHTML = errorHtml;
+                document.getElementById('topNetworkContent').innerHTML = errorHtml;
+            }
+        }
+        
+        function refreshData() {
+            updateStatus();
+            loadData();
+        }
+        
+        function showDomainAnalysis() {
+            const date = document.getElementById('dateSelect').value;
+            const params = new URLSearchParams();
+            if (date) params.append('date', date);
+            
+            fetch(`/api/network/domains?${params}`)
+                .then(response => response.json())
+                .then(domains => {
+                    let analysis = '🌐 ドメイン分析結果\n\n';
+                    
+                    if (domains.length === 0) {
+                        analysis += 'ネットワークデータがありません。';
+                    } else {
+                        domains.slice(0, 10).forEach((domain, index) => {
+                            analysis += `${index + 1}. ${domain.domain}\n`;
+                            analysis += `   接続時間: ${domain.formatted_duration}\n`;
+                            analysis += `   データ量: ${domain.formatted_bytes_sent} (送信) / ${domain.formatted_bytes_received} (受信)\n`;
+                            analysis += `   接続数: ${domain.connections} | プロトコル: ${domain.protocols.join(', ')}\n\n`;
+                        });
+                    }
+                    
+                    alert(analysis);
+                })
+                .catch(error => {
+                    alert(`ドメイン分析に失敗: ${error.message}`);
+                });
+        }
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus();
+            loadDates();
+            loadData();
+            
+            // 30秒ごとの自動更新
+            setInterval(refreshData, 30000);
+            
+            // イベントリスナー
+            document.getElementById('dateSelect').addEventListener('change', loadData);
+            document.getElementById('appCategorySelect').addEventListener('change', loadData);
+            document.getElementById('networkCategorySelect').addEventListener('change', loadData);
+        });
+    </script>
+</body>
+</html>
