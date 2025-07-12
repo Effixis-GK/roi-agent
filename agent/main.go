@@ -67,6 +67,8 @@ type Agent struct {
 	tcpdumpCmd       *exec.Cmd
 	tcpdumpCtx       context.Context
 	tcpdumpCancel    context.CancelFunc
+	lastTransmission time.Time
+	transmissionInterval time.Duration
 }
 
 // NewAgent creates a new monitoring agent
@@ -78,6 +80,8 @@ func NewAgent() *Agent {
 	agent := &Agent{
 		dataDir:       dataDir,
 		activeDomains: make(map[string]*NetworkConnection),
+		transmissionInterval: 10 * time.Minute,
+		lastTransmission: time.Now(),
 	}
 
 	os.MkdirAll(agent.dataDir, 0755)
@@ -688,6 +692,29 @@ func (a *Agent) updateAppUsage() {
 		activeApps, len(a.combinedData.Apps), frontmostApp)
 }
 
+// triggerDataTransmission triggers data transmission if interval has passed
+func (a *Agent) triggerDataTransmission() {
+	if time.Since(a.lastTransmission) >= a.transmissionInterval {
+		log.Println("Triggering data transmission...")
+		
+		// Save current data before transmission
+		a.saveCombinedData()
+		
+		// Execute data sender
+		go func() {
+			cmd := exec.Command("go", "run", "../data-sender/main.go", "process")
+			cmd.Dir = filepath.Dir(a.dataDir)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("Data transmission error: %v, output: %s", err, string(output))
+			} else {
+				log.Printf("Data transmission completed: %s", string(output))
+			}
+		}()
+		
+		a.lastTransmission = time.Now()
+	}
+}
+
 // saveCombinedData saves the current combined data to file
 func (a *Agent) saveCombinedData() {
 	dataFile := filepath.Join(a.dataDir, fmt.Sprintf("combined_%s.json", a.combinedData.Date))
@@ -753,6 +780,9 @@ func (a *Agent) Start() {
 			a.updateAppUsage()
 			a.updateNetworkUsage()
 			a.saveCombinedData()
+			
+			// Check for data transmission
+			a.triggerDataTransmission()
 		}
 	}
 }

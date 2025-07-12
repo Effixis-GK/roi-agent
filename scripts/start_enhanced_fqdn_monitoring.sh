@@ -58,6 +58,29 @@ fi
 
 echo "✅ Prerequisites check passed"
 
+# Ask about data transmission
+echo ""
+echo "📡 Data Transmission Setup:"
+echo "==========================="
+echo "Do you want to enable data transmission? (y/n)"
+read -p "Choice (default: n): " enable_transmission
+
+if [ "$enable_transmission" = "y" ] || [ "$enable_transmission" = "Y" ]; then
+    echo "📝 Please enter your server details:"
+    read -p "Base URL (e.g., https://api.yourserver.com/v1/roi-agent): " base_url
+    read -p "API Key: " api_key
+    
+    if [ "$base_url" != "" ] && [ "$api_key" != "" ]; then
+        export ROI_AGENT_BASE_URL="$base_url"
+        export ROI_AGENT_API_KEY="$api_key"
+        echo "✅ Data transmission will be enabled"
+    else
+        echo "⚠️  Missing URL or API key. Data transmission will be disabled."
+    fi
+else
+    echo "ℹ️  Data transmission will be disabled"
+fi
+
 # Kill any existing processes
 echo "🔄 Stopping any existing ROI Agent processes..."
 sudo pkill -f "tcpdump.*port 53" || true
