@@ -608,12 +608,12 @@
             };
             
             document.getElementById('appRankingTitle').textContent = 
-                `アプリケーション ${categoryNames[category]} ランキング`;
+                `アプリケーション ${categoryNames[category]} ランキング（アクティブのみ）`;
             
             const content = document.getElementById('appRankingContent');
             
             if (apps.length === 0) {
-                content.innerHTML = '<div class="loading">データがありません</div>';
+                content.innerHTML = '<div class="loading">アクティブなアプリケーションがありません</div>';
                 return;
             }
             
@@ -648,12 +648,12 @@
             };
             
             document.getElementById('networkRankingTitle').textContent = 
-                `ネットワーク ${categoryNames[category]} ランキング`;
+                `ネットワーク ${categoryNames[category]} ランキング（アクティブのみ）`;
             
             const content = document.getElementById('networkRankingContent');
             
             if (connections.length === 0) {
-                content.innerHTML = '<div class="loading">データがありません</div>';
+                content.innerHTML = '<div class="loading">アクティブなネットワーク接続がありません</div>';
                 return;
             }
             
@@ -781,8 +781,8 @@
             loadDates();
             loadData();
             
-            // 30秒ごとの自動更新
-            setInterval(refreshData, 30000);
+            // 15秒ごとの自動更新（より高頻度）
+            setInterval(refreshData, 15000);
             
             // イベントリスナー
             document.getElementById('dateSelect').addEventListener('change', loadData);

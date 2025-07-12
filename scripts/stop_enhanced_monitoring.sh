@@ -1,61 +1,77 @@
 #!/bin/bash
-echo "🛑 ROI Agent Enhanced - 拡張FQDN監視停止"
+echo "🛑 ROI Agent Enhanced - tcpdump DNS監視停止"
 echo "======================================="
 
 echo "プロセス停止中..."
-kill 36466 36557 2>/dev/null || true
-pkill -f "monitor_enhanced" || true
+
+# Stop tcpdump processes
+sudo pkill -f "tcpdump.*port 53" || true
+
+# Stop Go agent
+pkill -f "main.go" || true
+
+# Stop Web UI
 pkill -f "enhanced_app.py" || true
 
 sleep 3
 echo "✅ 停止完了"
 
 echo ""
-echo "📊 収集された拡張ネットワークデータ:"
+echo "📊 収集されたDNS監視データ:"
 echo "============================"
 TODAY=$(date +%Y-%m-%d)
-REAL_DATA_FILE="/Users/taktakeu/.roiagent/data/combined_$TODAY.json"
+REAL_DATA_FILE="$HOME/.roiagent/data/combined_$TODAY.json"
 
 if [ -f "$REAL_DATA_FILE" ]; then
-    echo "拡張データファイル: $REAL_DATA_FILE"
+    echo "データファイル: $REAL_DATA_FILE"
     
     if command -v jq > /dev/null 2>&1; then
         echo ""
         echo "📈 統計情報:"
-        echo "  アプリ数: $(jq '.apps | length' "$REAL_DATA_FILE" 2>/dev/null || echo "0")"
-        echo "  ネットワーク接続数: $(jq '.network | length' "$REAL_DATA_FILE" 2>/dev/null || echo "0")"
-        echo "  DNSクエリ数: $(jq '.dns_queries | length' "$REAL_DATA_FILE" 2>/dev/null || echo "0")"
+        echo "  アクティブアプリ数: $(jq '[.apps[] | select(.is_active == true)] | length' "$REAL_DATA_FILE" 2>/dev/null || echo "0")"
+        echo "  アクティブネットワーク接続数: $(jq '[.network[] | select(.is_active == true)] | length' "$REAL_DATA_FILE" 2>/dev/null || echo "0")"
         echo "  ユニークドメイン数: $(jq '.network_total.unique_domains' "$REAL_DATA_FILE" 2>/dev/null || echo "0")"
+        echo "  総接続時間: $(jq '.network_total.total_duration' "$REAL_DATA_FILE" 2>/dev/null || echo "0")秒"
         echo ""
-        echo "🌐 実際に解決されたFQDN:"
-        jq -r '.network | to_entries[] | select(.value.domain != .value.remote_ip) | "  " + .value.domain + " (" + .value.remote_ip + ")"' "$REAL_DATA_FILE" 2>/dev/null | head -10 || echo "  データなし"
+        echo "🌐 検出されたアクティブドメイン:"
+        jq -r '.network | to_entries[] | select(.value.is_active == true) | "  " + .value.domain + ":" + (.value.port | tostring) + " (" + .value.protocol + ")"' "$REAL_DATA_FILE" 2>/dev/null | head -10 || echo "  データなし"
         echo ""
-        echo "📡 DNSクエリ履歴:"
-        jq -r '.dns_queries[] | "  " + .domain + " (" + .timestamp + ")"' "$REAL_DATA_FILE" 2>/dev/null | tail -5 || echo "  データなし"
+        echo "🎯 フォーカス中のアプリ:"
+        jq -r '.apps | to_entries[] | select(.value.is_focused == true) | "  " + .key + " (フォーカス時間: " + (.value.focus_time | tostring) + "秒)"' "$REAL_DATA_FILE" 2>/dev/null || echo "  データなし"
     fi
 else
-    echo "拡張データファイルが見つかりません"
+    echo "データファイルが見つかりません"
 fi
 
 echo ""
 echo "📄 最新ログ:"
 echo "-----------"
-echo "拡張エージェント:"
-tail -5 "/Users/taktakeu/.roiagent/logs/enhanced_agent_20250627_203938.log" 2>/dev/null || echo "ログなし"
+echo "エージェント:"
+tail -5 "$HOME/.roiagent/logs/agent.log" 2>/dev/null || echo "ログなし"
 echo ""
-echo "拡張Web UI:"
-tail -5 "/Users/taktakeu/.roiagent/logs/enhanced_web_20250627_203938.log" 2>/dev/null || echo "ログなし"
+echo "Web UI:"
+tail -5 "$HOME/.roiagent/logs/webui.log" 2>/dev/null || echo "ログなし"
 
 echo ""
-echo "🔍 FQDN解決状況:"
+echo "🔍 DNS監視状況:"
 echo "---------------"
-if [ -f "/Users/taktakeu/.roiagent/logs/enhanced_agent_20250627_203938.log" ]; then
-    FQDN_COUNT=$(grep -c "Resolved" "/Users/taktakeu/.roiagent/logs/enhanced_agent_20250627_203938.log" 2>/dev/null || echo "0")
-    echo "  FQDN解決回数: $FQDN_COUNT"
-    if [ "$FQDN_COUNT" -gt 0 ]; then
-        echo "  最近の解決例:"
-        grep "Resolved" "/Users/taktakeu/.roiagent/logs/enhanced_agent_20250627_203938.log" | tail -3 | sed 's/^/    /' || echo "    なし"
+if [ -f "$HOME/.roiagent/logs/agent.log" ]; then
+    DNS_COUNT=$(grep -c "DNS Query detected" "$HOME/.roiagent/logs/agent.log" 2>/dev/null || echo "0")
+    echo "  DNS検出回数: $DNS_COUNT"
+    if [ "$DNS_COUNT" -gt 0 ]; then
+        echo "  最近の検出例:"
+        grep "DNS Query detected" "$HOME/.roiagent/logs/agent.log" | tail -3 | sed 's/^/    /' || echo "    なし"
     fi
+    
+    NETWORK_COUNT=$(grep -c "Network update" "$HOME/.roiagent/logs/agent.log" 2>/dev/null || echo "0")
+    echo "  ネットワーク更新回数: $NETWORK_COUNT"
+    
+    APP_COUNT=$(grep -c "App update" "$HOME/.roiagent/logs/agent.log" 2>/dev/null || echo "0")
+    echo "  アプリ更新回数: $APP_COUNT"
 else
     echo "  ログファイルなし"
 fi
+
+echo ""
+echo "ℹ️  データは $HOME/.roiagent/data/ に保存されています"
+echo "📊 Web UI: http://localhost:5002 でデータを確認できます"
