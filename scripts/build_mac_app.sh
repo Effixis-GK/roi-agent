@@ -1,1 +1,240 @@
-#!/bin/bash\n\n# ROI Agent - Mac App Builder\n# Creates a native macOS application with custom icon\n\nset -e\n\necho \"🍎 Building ROI Agent for macOS...\"\n\n# Get the directory where this script is located\nSCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\nPROJECT_ROOT=\"$(dirname \"$SCRIPT_DIR\")\"\n\necho \"Project root: $PROJECT_ROOT\"\n\n# Configuration\nAPP_NAME=\"ROI Agent\"\nAPP_BUNDLE_ID=\"com.roiagent.monitor\"\nAPP_VERSION=\"1.0.0\"\nBUILD_DIR=\"$PROJECT_ROOT/build\"\nAPP_DIR=\"$BUILD_DIR/$APP_NAME.app\"\nCONTENTS_DIR=\"$APP_DIR/Contents\"\nMACOS_DIR=\"$CONTENTS_DIR/MacOS\"\nRESOURCES_DIR=\"$CONTENTS_DIR/Resources\"\nAPP_ICON_PATH=\"$PROJECT_ROOT/public/app-icon.png\"\n\n# Clean and create build directory\necho \"🧹 Cleaning build directory...\"\nrm -rf \"$BUILD_DIR\"\nmkdir -p \"$BUILD_DIR\"\nmkdir -p \"$MACOS_DIR\"\nmkdir -p \"$RESOURCES_DIR\"\n\n# Check if Go is installed\nif ! command -v go &> /dev/null; then\n    echo \"❌ Error: Go is not installed\"\n    exit 1\nfi\n\n# Check if Python is installed\nif ! command -v python3 &> /dev/null; then\n    echo \"❌ Error: Python3 is not installed\"\n    exit 1\nfi\n\n# Build Go agent\necho \"🔨 Building Go agent...\"\ncd \"$PROJECT_ROOT/agent\"\nGOOS=darwin GOARCH=amd64 go build -o \"$MACOS_DIR/roi-agent\" main.go\nchmod +x \"$MACOS_DIR/roi-agent\"\n\n# Copy Python Web UI\necho \"📦 Copying Web UI...\"\ncp -r \"$PROJECT_ROOT/web\" \"$RESOURCES_DIR/\"\n\n# Copy scripts\necho \"📜 Copying scripts...\"\nmkdir -p \"$RESOURCES_DIR/scripts\"\ncp \"$PROJECT_ROOT/scripts/start_enhanced_fqdn_monitoring.sh\" \"$RESOURCES_DIR/scripts/\"\ncp \"$PROJECT_ROOT/scripts/stop_enhanced_monitoring.sh\" \"$RESOURCES_DIR/scripts/\"\nchmod +x \"$RESOURCES_DIR/scripts/\"*.sh\n\n# Create Info.plist\necho \"📄 Creating Info.plist...\"\ncat > \"$CONTENTS_DIR/Info.plist\" << EOF\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>CFBundleExecutable</key>\n    <string>roi-agent-launcher</string>\n    <key>CFBundleIdentifier</key>\n    <string>$APP_BUNDLE_ID</string>\n    <key>CFBundleName</key>\n    <string>$APP_NAME</string>\n    <key>CFBundleVersion</key>\n    <string>$APP_VERSION</string>\n    <key>CFBundleShortVersionString</key>\n    <string>$APP_VERSION</string>\n    <key>CFBundlePackageType</key>\n    <string>APPL</string>\n    <key>CFBundleSignature</key>\n    <string>????</string>\n    <key>LSMinimumSystemVersion</key>\n    <string>10.15.0</string>\n    <key>CFBundleIconFile</key>\n    <string>AppIcon</string>\n    <key>NSHighResolutionCapable</key>\n    <true/>\n    <key>LSApplicationCategoryType</key>\n    <string>public.app-category.productivity</string>\n    <key>NSAppleEventsUsageDescription</key>\n    <string>ROI Agent needs AppleScript access to monitor application usage.</string>\n    <key>NSSystemAdministrationUsageDescription</key>\n    <string>ROI Agent needs administrator privileges for network monitoring.</string>\n</dict>\n</plist>\nEOF\n\n# Create launcher script\necho \"🚀 Creating launcher script...\"\ncat > \"$MACOS_DIR/roi-agent-launcher\" << 'EOF'\n#!/bin/bash\n\n# ROI Agent Launcher\n# This script launches both the Go agent and Python Web UI\n\n# Get the directory where this app bundle is located\nAPP_DIR=\"$(dirname \"$(dirname \"$(dirname \"$(realpath \"$0\")\")\")\")\" \nRESOURCES_DIR=\"$APP_DIR/Contents/Resources\"\nMAC_OS_DIR=\"$APP_DIR/Contents/MacOS\"\n\n# Change to resources directory\ncd \"$RESOURCES_DIR\"\n\n# Check accessibility permissions\n\"$MAC_OS_DIR/roi-agent\" check-permissions\nif [ $? -ne 0 ]; then\n    osascript -e 'display dialog \"ROI Agent needs Accessibility permissions.\\n\\nPlease go to:\\nSystem Settings > Privacy & Security > Accessibility\\n\\nAnd add this application.\" buttons {\"OK\"} default button \"OK\"'\n    exit 1\nfi\n\n# Check sudo permissions\nif ! sudo -n true 2>/dev/null; then\n    osascript -e 'display dialog \"ROI Agent needs administrator privileges for network monitoring.\\n\\nPlease enter your password when prompted.\" buttons {\"OK\"} default button \"OK\"'\nfi\n\n# Create logs directory\nmkdir -p \"$HOME/.roiagent/logs\"\n\n# Start the agent in background\n\"$MAC_OS_DIR/roi-agent\" > \"$HOME/.roiagent/logs/agent.log\" 2>&1 &\nAGENT_PID=$!\n\n# Wait a moment for agent to start\nsleep 3\n\n# Start the web UI in background\ncd \"$RESOURCES_DIR/web\"\npython3 enhanced_app.py > \"$HOME/.roiagent/logs/webui.log\" 2>&1 &\nWEBUI_PID=$!\n\n# Wait for web server to start\nsleep 5\n\n# Open dashboard in browser\nopen http://localhost:5002\n\n# Show notification\nosascript -e 'display notification \"ROI Agent is now running. Dashboard opened in browser.\" with title \"ROI Agent\"'\n\n# Keep the launcher running\nwait $AGENT_PID $WEBUI_PID\nEOF\n\nchmod +x \"$MACOS_DIR/roi-agent-launcher\"\n\n# Handle app icon\nif [ -f \"$APP_ICON_PATH\" ]; then\n    echo \"🎨 Adding custom app icon...\"\n    \n    # Check if we have sips command to convert icon\n    if command -v sips &> /dev/null; then\n        # Create different sizes for icon set\n        ICONSET_DIR=\"$BUILD_DIR/AppIcon.iconset\"\n        mkdir -p \"$ICONSET_DIR\"\n        \n        # Generate all required icon sizes\n        sips -z 16 16 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_16x16.png\"\n        sips -z 32 32 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_16x16@2x.png\"\n        sips -z 32 32 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_32x32.png\"\n        sips -z 64 64 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_32x32@2x.png\"\n        sips -z 128 128 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_128x128.png\"\n        sips -z 256 256 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_128x128@2x.png\"\n        sips -z 256 256 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_256x256.png\"\n        sips -z 512 512 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_256x256@2x.png\"\n        sips -z 512 512 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_512x512.png\"\n        sips -z 1024 1024 \"$APP_ICON_PATH\" --out \"$ICONSET_DIR/icon_512x512@2x.png\"\n        \n        # Convert to .icns file\n        if command -v iconutil &> /dev/null; then\n            iconutil -c icns \"$ICONSET_DIR\" -o \"$RESOURCES_DIR/AppIcon.icns\"\n            echo \"✅ Custom app icon created\"\n        else\n            echo \"⚠️  iconutil not found, using PNG icon directly\"\n            cp \"$APP_ICON_PATH\" \"$RESOURCES_DIR/AppIcon.png\"\n        fi\n        \n        # Clean up iconset\n        rm -rf \"$ICONSET_DIR\"\n    else\n        echo \"⚠️  sips not found, copying PNG icon directly\"\n        cp \"$APP_ICON_PATH\" \"$RESOURCES_DIR/AppIcon.png\"\n    fi\nelse\n    echo \"⚠️  App icon not found at $APP_ICON_PATH\"\n    echo \"   Place your app icon (512x512 PNG) at public/app-icon.png\"\nfi\n\n# Create README for the app\ncat > \"$RESOURCES_DIR/README.txt\" << EOF\nROI Agent - macOS Application & Network Monitor\n\nThis application monitors:\n- Application usage time and focus time\n- Network connections via DNS monitoring\n\nRequirements:\n- macOS with Accessibility permissions\n- Administrator privileges for network monitoring\n\nDashboard: http://localhost:5002\n\nData Storage: ~/.roiagent/\nLogs: ~/.roiagent/logs/\n\nTo stop monitoring:\n1. Quit this application\n2. Or run: sudo pkill -f \"tcpdump.*port 53\" && pkill -f \"roi-agent\"\nEOF\n\necho \"🎉 Mac app build complete!\"\necho \"\"\necho \"📍 App location: $APP_DIR\"\necho \"🖼️  Icon: $([ -f \"$APP_ICON_PATH\" ] && echo \"Custom icon applied\" || echo \"No custom icon (place at public/app-icon.png)\")\"\necho \"\"\necho \"🔧 To install:\"\necho \"   1. Copy '$APP_NAME.app' to /Applications/\"\necho \"   2. Right-click > Open (first time only)\"\necho \"\"\necho \"📋 Next steps:\"\necho \"   1. Grant Accessibility permissions when prompted\"\necho \"   2. Enter admin password for network monitoring\"\necho \"   3. Dashboard will open automatically\"\n\n# Optionally open the build directory\nif command -v open &> /dev/null; then\n    echo \"📂 Opening build directory...\"\n    open \"$BUILD_DIR\"\nfi\n
+#!/bin/bash
+
+# ROI Agent - Mac App Builder
+# Creates a native macOS application with custom icon
+
+set -e
+
+echo "🍎 Building ROI Agent for macOS..."
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "Project root: $PROJECT_ROOT"
+
+# Configuration
+APP_NAME="ROI Agent"
+APP_BUNDLE_ID="com.roiagent.monitor"
+APP_VERSION="1.0.0"
+BUILD_DIR="$PROJECT_ROOT/build"
+APP_DIR="$BUILD_DIR/$APP_NAME.app"
+CONTENTS_DIR="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+APP_ICON_PATH="$PROJECT_ROOT/public/icon.png"
+
+# Clean and create build directory
+echo "🧹 Cleaning build directory..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+mkdir -p "$MACOS_DIR"
+mkdir -p "$RESOURCES_DIR"
+
+# Check if Go is installed
+if ! command -v go &> /dev/null; then
+    echo "❌ Error: Go is not installed"
+    exit 1
+fi
+
+# Check if Python is installed
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Error: Python3 is not installed"
+    exit 1
+fi
+
+# Build Go agent
+echo "🔨 Building Go agent..."
+cd "$PROJECT_ROOT/agent"
+GOOS=darwin GOARCH=amd64 go build -o "$MACOS_DIR/roi-agent" main.go
+chmod +x "$MACOS_DIR/roi-agent"
+
+# Copy Python Web UI
+echo "📦 Copying Web UI..."
+cp -r "$PROJECT_ROOT/web" "$RESOURCES_DIR/"
+
+# Copy scripts
+echo "📜 Copying scripts..."
+mkdir -p "$RESOURCES_DIR/scripts"
+cp "$PROJECT_ROOT/scripts/start_enhanced_fqdn_monitoring.sh" "$RESOURCES_DIR/scripts/"
+cp "$PROJECT_ROOT/scripts/stop_enhanced_monitoring.sh" "$RESOURCES_DIR/scripts/"
+chmod +x "$RESOURCES_DIR/scripts/"*.sh
+
+# Create Info.plist
+echo "📄 Creating Info.plist..."
+cat > "$CONTENTS_DIR/Info.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>roi-agent-launcher</string>
+    <key>CFBundleIdentifier</key>
+    <string>$APP_BUNDLE_ID</string>
+    <key>CFBundleName</key>
+    <string>$APP_NAME</string>
+    <key>CFBundleVersion</key>
+    <string>$APP_VERSION</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$APP_VERSION</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>ROI Agent needs AppleScript access to monitor application usage.</string>
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>ROI Agent needs administrator privileges for network monitoring.</string>
+</dict>
+</plist>
+EOF
+
+# Create launcher script
+echo "🚀 Creating launcher script..."
+cat > "$MACOS_DIR/roi-agent-launcher" << 'EOF'
+#!/bin/bash
+
+# ROI Agent Launcher
+# This script launches both the Go agent and Python Web UI
+
+# Get the directory where this app bundle is located
+APP_DIR="$(dirname "$(dirname "$(dirname "$(realpath "$0")")")")" 
+RESOURCES_DIR="$APP_DIR/Contents/Resources"
+MAC_OS_DIR="$APP_DIR/Contents/MacOS"
+
+# Change to resources directory
+cd "$RESOURCES_DIR"
+
+# Check accessibility permissions
+"$MAC_OS_DIR/roi-agent" check-permissions
+if [ $? -ne 0 ]; then
+    osascript -e 'display dialog "ROI Agent needs Accessibility permissions.\n\nPlease go to:\nSystem Settings > Privacy & Security > Accessibility\n\nAnd add this application." buttons {"OK"} default button "OK"'
+    exit 1
+fi
+
+# Check sudo permissions
+if ! sudo -n true 2>/dev/null; then
+    osascript -e 'display dialog "ROI Agent needs administrator privileges for network monitoring.\n\nPlease enter your password when prompted." buttons {"OK"} default button "OK"'
+fi
+
+# Create logs directory
+mkdir -p "$HOME/.roiagent/logs"
+
+# Start the agent in background
+"$MAC_OS_DIR/roi-agent" > "$HOME/.roiagent/logs/agent.log" 2>&1 &
+AGENT_PID=$!
+
+# Wait a moment for agent to start
+sleep 3
+
+# Start the web UI in background
+cd "$RESOURCES_DIR/web"
+python3 enhanced_app.py > "$HOME/.roiagent/logs/webui.log" 2>&1 &
+WEBUI_PID=$!
+
+# Wait for web server to start
+sleep 5
+
+# Open dashboard in browser
+open http://localhost:5002
+
+# Show notification
+osascript -e 'display notification "ROI Agent is now running. Dashboard opened in browser." with title "ROI Agent"'
+
+# Keep the launcher running
+wait $AGENT_PID $WEBUI_PID
+EOF
+
+chmod +x "$MACOS_DIR/roi-agent-launcher"
+
+# Handle app icon
+if [ -f "$APP_ICON_PATH" ]; then
+    echo "🎨 Adding custom app icon..."
+    
+    # Check if we have sips command to convert icon
+    if command -v sips &> /dev/null; then
+        # Create different sizes for icon set
+        ICONSET_DIR="$BUILD_DIR/AppIcon.iconset"
+        mkdir -p "$ICONSET_DIR"
+        
+        # Generate all required icon sizes
+        sips -z 16 16 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_16x16.png"
+        sips -z 32 32 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_16x16@2x.png"
+        sips -z 32 32 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_32x32.png"
+        sips -z 64 64 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_32x32@2x.png"
+        sips -z 128 128 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_128x128.png"
+        sips -z 256 256 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_128x128@2x.png"
+        sips -z 256 256 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_256x256.png"
+        sips -z 512 512 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_256x256@2x.png"
+        sips -z 512 512 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_512x512.png"
+        sips -z 1024 1024 "$APP_ICON_PATH" --out "$ICONSET_DIR/icon_512x512@2x.png"
+        
+        # Convert to .icns file
+        if command -v iconutil &> /dev/null; then
+            iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/AppIcon.icns"
+            echo "✅ Custom app icon created"
+        else
+            echo "⚠️  iconutil not found, using PNG icon directly"
+            cp "$APP_ICON_PATH" "$RESOURCES_DIR/AppIcon.png"
+        fi
+        
+        # Clean up iconset
+        rm -rf "$ICONSET_DIR"
+    else
+        echo "⚠️  sips not found, copying PNG icon directly"
+        cp "$APP_ICON_PATH" "$RESOURCES_DIR/AppIcon.png"
+    fi
+else
+    echo "⚠️  App icon not found at $APP_ICON_PATH"
+    echo "   Place your app icon (512x512 PNG) at public/icon.png"
+fi
+
+# Create README for the app
+cat > "$RESOURCES_DIR/README.txt" << EOF
+ROI Agent - macOS Application & Network Monitor
+
+This application monitors:
+- Application usage time and focus time
+- Network connections via DNS monitoring
+
+Requirements:
+- macOS with Accessibility permissions
+- Administrator privileges for network monitoring
+
+Dashboard: http://localhost:5002
+
+Data Storage: ~/.roiagent/
+Logs: ~/.roiagent/logs/
+
+To stop monitoring:
+1. Quit this application
+2. Or run: sudo pkill -f "tcpdump.*port 53" && pkill -f "roi-agent"
+EOF
+
+echo "🎉 Mac app build complete!"
+echo ""
+echo "📍 App location: $APP_DIR"
+echo "🖼️  Icon: $([ -f "$APP_ICON_PATH" ] && echo "Custom icon applied" || echo "No custom icon (place at public/icon.png)")"
+echo ""
+echo "🔧 To install:"
+echo "   1. Copy '$APP_NAME.app' to /Applications/"
+echo "   2. Right-click > Open (first time only)"
+echo ""
+echo "📋 Next steps:"
+echo "   1. Grant Accessibility permissions when prompted"
+echo "   2. Enter admin password for network monitoring"
+echo "   3. Dashboard will open automatically"
+
+# Optionally open the build directory
+if command -v open &> /dev/null; then
+    echo "📂 Opening build directory..."
+    open "$BUILD_DIR"
+fi
