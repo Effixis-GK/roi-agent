@@ -82,9 +82,11 @@ cd data-sender
 cp .env.example .env
 
 # .envファイルを編集
-# ROI_AGENT_BASE_URL=https://api.yourserver.com/v1/roi-agent
-# ROI_AGENT_API_KEY=your-actual-api-key-here
+echo "ROI_AGENT_BASE_URL=https://api.yourserver.com/v1/roi-agent" > .env
+echo "ROI_AGENT_API_KEY=your-actual-api-key-here" >> .env
 ```
+
+**ℹ️ 重要**: `start_enhanced_fqdn_monitoring.sh` は `.env` ファイルがある場合は自動で設定を読み込みます。
 
 ### 方法2: コマンドライン設定
 ```bash
@@ -117,7 +119,7 @@ export ROI_AGENT_API_KEY="your-actual-api-key"
 **ヘッダー**:
 ```
 Content-Type: application/json
-Authorization: Bearer {API_KEY}
+X-API-Key: {API_KEY}
 User-Agent: ROI-Agent/1.0.0
 ```
 
@@ -209,14 +211,20 @@ roi-agent/
 │   ├── main.go              # データ送信機能
 │   ├── go.mod
 │   ├── .env.example         # 環境変数テンプレート
+│   ├── .env                 # 実際の環境変数（自動作成）
 │   └── GO_DEPENDENCIES_GUIDE.md
+├── debug/
+│   ├── test_data_transmission.go  # データ送信テストツール
+│   ├── go.mod                     # Debug用Goモジュール
+│   ├── run_debug.sh               # 自動デバッグスクリプト
+│   └── README.md                  # Debugツール使用方法
 ├── web/
 │   ├── enhanced_app.py      # Flask Web UI
 │   ├── requirements.txt
 │   └── templates/
 │       └── enhanced_index.html
 ├── scripts/
-│   ├── start_enhanced_fqdn_monitoring.sh  # 起動（対話式）
+│   ├── start_enhanced_fqdn_monitoring.sh  # 起動（.env自動読み込み）
 │   ├── stop_enhanced_monitoring.sh        # 停止
 │   ├── build_mac_app.sh                   # Macアプリビルド
 │   ├── setup_data_transmission.sh         # データ送信セットアップ
@@ -273,6 +281,19 @@ curl -s http://localhost:5002/api/status | jq '.'
 # 送信ログ確認
 ls -la ~/.roiagent/transmission/
 ```
+
+### デバッグツールでのAPIテスト
+```bash
+# デバッグフォルダで自動テスト実行
+cd debug
+chmod +x run_debug.sh
+./run_debug.sh
+
+# または手動でテスト
+go run test_data_transmission.go
+```
+
+デバッグツールの詳細な使用方法は `debug/README.md` を参照してください。
 
 ## 🔒 Security & Privacy
 
