@@ -145,12 +145,16 @@ class EnhancedMonitorUI:
             return f"{bytes_count / (1024 * 1024 * 1024):.1f}GB"
     
     def get_app_ranking_data(self, data, category="foreground_time"):
-        """Get app ranking data for specified category"""
+        """Get app ranking data for specified category - only active apps"""
         if not data or not data.get("apps"):
             return []
         
         apps = []
         for app_name, app_data in data["apps"].items():
+            # Only include currently active apps
+            if not app_data.get("is_active", False):
+                continue
+                
             usage_time = app_data.get(category, 0)
             if usage_time > 0:
                 apps.append({
@@ -169,12 +173,16 @@ class EnhancedMonitorUI:
         return apps
     
     def get_network_ranking_data(self, data, category="duration"):
-        """Get network ranking data for specified category"""
+        """Get network ranking data for specified category - only active connections"""
         if not data or not data.get("network"):
             return []
         
         connections = []
         for conn_key, conn_data in data["network"].items():
+            # Only include currently active connections
+            if not conn_data.get("is_active", False):
+                continue
+                
             if category == "duration":
                 value = conn_data.get("duration", 0)
                 formatted_value = self.format_time(value)

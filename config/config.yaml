@@ -1,15 +1,16 @@
 # ROI Agent Enhanced Configuration
-# Real data only - no test data
+# DNS Snooping based network monitoring
 monitor:
   interval: 15  # seconds
   data_retention_days: 30
   use_real_data_only: true
   
 network:
+  dns_snooping: true
   monitor_ports: [80, 443, 8080, 3000, 5000, 8000, 9000]
   monitor_protocols: ["HTTP", "HTTPS", "TCP"]
-  dns_resolution: true
-  packet_capture: true
+  tcpdump_packet_count: 50  # Number of packets to capture per session
+  requires_sudo: true
   real_connections_only: true
   
 web:
@@ -19,6 +20,7 @@ web:
   
 security:
   require_accessibility: true
+  require_sudo: true  # Required for DNS snooping
   local_only: true
   
 debug:

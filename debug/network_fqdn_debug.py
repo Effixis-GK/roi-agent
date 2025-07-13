@@ -501,23 +501,26 @@ class NetworkFQDNDebugTools:
 
 def main():
     if len(sys.argv) < 2:
-        print("ROI Agent Enhanced - Network FQDN Debug Tools")
+        print("ROI Agent Enhanced - DNS Snooping Debug Tools")
         print("")
         print("使用方法:")
         print("  python3 network_fqdn_debug.py [command]")
         print("")
         print("コマンド:")
         print("  fqdn              - FQDN解決テスト")
-        print("  connections       - 現在のネットワーク接続テスト")
-        print("  dns               - DNS監視機能テスト")
+        print("  dns               - DNS Snooping機能テスト (要sudo)")
+        print("  connections       - DNS Snooping接続テスト (要sudo)")
         print("  redirects         - HTTPリダイレクト追跡テスト")
         print("  agent             - 拡張エージェントバイナリテスト")
         print("  verify            - 拡張エージェントデータ検証")
-        print("  full              - 包括的ネットワーク診断")
+        print("  full              - 包括的DNS Snooping診断 (要sudo)")
         print("")
         print("例:")
-        print("  python3 network_fqdn_debug.py full")
-        print("  sudo python3 network_fqdn_debug.py connections  # 詳細権限が必要")
+        print("  sudo python3 network_fqdn_debug.py full")
+        print("  sudo python3 network_fqdn_debug.py dns")
+        print("  python3 network_fqdn_debug.py fqdn")
+        print("")
+        print("注意: DNS Snooping機能にはsudo権限が必要です")
         print("")
         return
     
@@ -529,7 +532,7 @@ def main():
     elif command == "connections":
         tools.test_current_connections()
     elif command == "dns":
-        tools.test_dns_monitoring()
+        tools.test_dns_snooping()
     elif command == "redirects":
         tools.test_redirect_following()
     elif command == "agent":

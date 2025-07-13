@@ -1,1 +1,0 @@
-chmod +x /Users/taktakeu/Local/GitHub/roi-agent/cleanup.sh && /Users/taktakeu/Local/GitHub/roi-agent/cleanup.sh
