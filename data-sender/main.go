@@ -344,7 +344,7 @@ func (ds *DataSender) sendData(payload TransmissionPayload) error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ds.config.APIKey))
+	req.Header.Set("X-API-Key", ds.config.APIKey)
 	req.Header.Set("User-Agent", "ROI-Agent/1.0.0")
 
 	// Send request

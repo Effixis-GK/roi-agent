@@ -58,27 +58,68 @@ fi
 
 echo "✅ Prerequisites check passed"
 
-# Ask about data transmission
+# Check for .env file in data-sender folder
 echo ""
 echo "📡 Data Transmission Setup:"
 echo "==========================="
-echo "Do you want to enable data transmission? (y/n)"
-read -p "Choice (default: n): " enable_transmission
 
-if [ "$enable_transmission" = "y" ] || [ "$enable_transmission" = "Y" ]; then
-    echo "📝 Please enter your server details:"
-    read -p "Base URL (e.g., https://api.yourserver.com/v1/roi-agent): " base_url
-    read -p "API Key: " api_key
+ENV_FILE="$PROJECT_ROOT/data-sender/.env"
+if [ -f "$ENV_FILE" ]; then
+    echo "✅ Found .env file at $ENV_FILE"
+    echo "📄 Loading environment variables from .env file..."
     
-    if [ "$base_url" != "" ] && [ "$api_key" != "" ]; then
-        export ROI_AGENT_BASE_URL="$base_url"
-        export ROI_AGENT_API_KEY="$api_key"
+    # Load environment variables from .env file
+    while IFS= read -r line; do
+        # Skip empty lines and comments
+        if [[ "$line" =~ ^[[:space:]]*$ ]] || [[ "$line" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
+        # Export the variable
+        if [[ "$line" =~ ^[[:space:]]*([^=]+)=(.*)$ ]]; then
+            export "${BASH_REMATCH[1]}"="${BASH_REMATCH[2]}"
+        fi
+    done < "$ENV_FILE"
+    
+    # Check if required variables are set
+    if [ "$ROI_AGENT_BASE_URL" != "" ] && [ "$ROI_AGENT_API_KEY" != "" ]; then
         echo "✅ Data transmission will be enabled"
+        echo "📡 Server URL: $ROI_AGENT_BASE_URL"
+        echo "🔑 API Key: ${ROI_AGENT_API_KEY:0:8}..."
     else
-        echo "⚠️  Missing URL or API key. Data transmission will be disabled."
+        echo "⚠️  .env file found but missing required variables. Data transmission will be disabled."
     fi
 else
-    echo "ℹ️  Data transmission will be disabled"
+    echo "⚠️  No .env file found at $ENV_FILE"
+    echo "Do you want to enable data transmission? (y/n)"
+    read -p "Choice (default: n): " enable_transmission
+    
+    if [ "$enable_transmission" = "y" ] || [ "$enable_transmission" = "Y" ]; then
+        echo "📝 Please enter your server details:"
+        read -p "Base URL (e.g., https://api.yourserver.com/v1/roi-agent): " base_url
+        read -p "API Key: " api_key
+        
+        if [ "$base_url" != "" ] && [ "$api_key" != "" ]; then
+            export ROI_AGENT_BASE_URL="$base_url"
+            export ROI_AGENT_API_KEY="$api_key"
+            
+            # Save to .env file for future use
+            echo "💾 Saving configuration to .env file..."
+            mkdir -p "$(dirname "$ENV_FILE")"
+            cat > "$ENV_FILE" << EOF
+# ROI Agent Data Transmission Environment Variables
+# Replace with your actual server URL and API key
+
+ROI_AGENT_BASE_URL=$base_url
+ROI_AGENT_API_KEY=$api_key
+EOF
+            echo "✅ Configuration saved to $ENV_FILE"
+            echo "✅ Data transmission will be enabled"
+        else
+            echo "⚠️  Missing URL or API key. Data transmission will be disabled."
+        fi
+    else
+        echo "ℹ️  Data transmission will be disabled"
+    fi
 fi
 
 # Kill any existing processes
