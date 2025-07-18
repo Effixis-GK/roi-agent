@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,40 @@ type CombinedData struct {
 	} `json:"network_total"`
 }
 
+// loadEnvFile loads environment variables from a .env file
+func loadEnvFile(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		
+		// Parse KEY=VALUE format
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			
+			// Only set if not already set (environment variables take precedence)
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+				log.Printf("Loaded from .env: %s=%s", key, value)
+			}
+		}
+	}
+	
+	return scanner.Err()
+}
+
 // Agent represents the main monitoring agent
 type Agent struct {
 	dataDir          string
@@ -77,10 +112,41 @@ func NewAgent() *Agent {
 	userDataDir := filepath.Join(homeDir, ".roiagent")
 	dataDir := filepath.Join(userDataDir, "data")
 
+	// Try to load .env file first (for interval settings)
+	envPaths := []string{
+		".env",               // Current directory
+		"./data-sender/.env", // From project root
+		"../.env",            // Parent directory
+		"../data-sender/.env", // Parent/data-sender
+	}
+	
+	for _, envPath := range envPaths {
+		if _, err := os.Stat(envPath); err == nil {
+			log.Printf("Loading .env file from: %s", envPath)
+			if err := loadEnvFile(envPath); err != nil {
+				log.Printf("Warning: Failed to load .env file %s: %v", envPath, err)
+			}
+			break
+		}
+	}
+
+	// Load transmission interval from environment variable
+	intervalMinutes := 10 // default
+	if intervalStr := os.Getenv("ROI_AGENT_INTERVAL_MINUTES"); intervalStr != "" {
+		if interval, err := strconv.Atoi(intervalStr); err == nil && interval > 0 {
+			intervalMinutes = interval
+			log.Printf("Using custom transmission interval: %d minutes", interval)
+		} else {
+			log.Printf("Warning: Invalid interval value '%s', using default %d minutes", intervalStr, intervalMinutes)
+		}
+	} else {
+		log.Printf("Using default transmission interval: %d minutes", intervalMinutes)
+	}
+
 	agent := &Agent{
 		dataDir:       dataDir,
 		activeDomains: make(map[string]*NetworkConnection),
-		transmissionInterval: 10 * time.Minute,
+		transmissionInterval: time.Duration(intervalMinutes) * time.Minute,
 		lastTransmission: time.Now(),
 	}
 
@@ -700,10 +766,68 @@ func (a *Agent) triggerDataTransmission() {
 		// Save current data before transmission
 		a.saveCombinedData()
 		
-		// Execute data sender
+		// Execute data sender using built binary
 		go func() {
-			cmd := exec.Command("go", "run", "../data-sender/main.go", "process")
-			cmd.Dir = filepath.Dir(a.dataDir)
+			// Get the current working directory and find project root
+			wd, err := os.Getwd()
+			if err != nil {
+				log.Printf("Error getting working directory: %v", err)
+				return
+			}
+			
+			// Look for project root (directory containing data-sender folder)
+			projectRoot := wd
+			for {
+				dataSenderDir := filepath.Join(projectRoot, "data-sender")
+				if _, err := os.Stat(dataSenderDir); err == nil {
+					break // Found project root
+				}
+				parent := filepath.Dir(projectRoot)
+				if parent == projectRoot {
+					// Reached filesystem root without finding data-sender
+					log.Printf("Error: Could not find project root with data-sender directory")
+					return
+				}
+				projectRoot = parent
+			}
+			
+			dataSenderDir := filepath.Join(projectRoot, "data-sender")
+			dataSenderBinary := filepath.Join(dataSenderDir, "data-sender")
+			
+			// Build data-sender if binary doesn't exist or source is newer
+			needsBuild := true
+			if info, err := os.Stat(dataSenderBinary); err == nil {
+				// Check if any .go file is newer than binary
+				binaryTime := info.ModTime()
+				needsBuild = false
+				
+				files, _ := filepath.Glob(filepath.Join(dataSenderDir, "*.go"))
+				for _, file := range files {
+					if fileInfo, err := os.Stat(file); err == nil {
+						if fileInfo.ModTime().After(binaryTime) {
+							needsBuild = true
+							break
+						}
+					}
+				}
+			}
+			
+			if needsBuild {
+				log.Printf("Building data-sender binary...")
+				buildCmd := exec.Command("go", "build", "-o", "data-sender", ".")
+				buildCmd.Dir = dataSenderDir
+				if output, err := buildCmd.CombinedOutput(); err != nil {
+					log.Printf("Data-sender build error: %v, output: %s", err, string(output))
+					return
+				}
+				log.Printf("Data-sender built successfully")
+			}
+			
+			log.Printf("Executing data transmission: %s process", dataSenderBinary)
+			
+			cmd := exec.Command(dataSenderBinary, "process")
+			cmd.Dir = dataSenderDir
+			
 			if output, err := cmd.CombinedOutput(); err != nil {
 				log.Printf("Data transmission error: %v, output: %s", err, string(output))
 			} else {

@@ -1,4 +1,4 @@
-# ROI Agent - App & Network Monitor for macOS
+# ROI Agent - macOS App & Network Monitor
 
 macOS用のリアルタイムアプリケーション使用時間とネットワーク通信監視ツール
 
@@ -9,7 +9,7 @@ macOS用のリアルタイムアプリケーション使用時間とネットワ
 - **アプリケーション監視**: リアルタイムでアプリの使用時間、フォーカス時間を追跡
 - **ネットワーク監視**: DNS監視によるWebサイトアクセス履歴
 - **リアルタイムWeb UI**: 直感的なダッシュボード（ポート5002）
-- **データ送信**: サーバーへの10分間隔自動送信（オプション）
+- **データ送信**: サーバーへの自動送信（オプション、間隔設定可能）
 - **データ保存**: 日別でのJSONデータ保存
 
 ## 🚀 Quick Start
@@ -19,7 +19,7 @@ macOS用のリアルタイムアプリケーション使用時間とネットワ
 1. システム設定 > プライバシーとセキュリティ > アクセシビリティ
 2. ターミナルまたはVS Codeを追加
 
-### 2. 起動（対話式）
+### 2. 起動
 ```bash
 # リポジトリをクローン
 git clone <repository-url>
@@ -28,7 +28,7 @@ cd roi-agent
 # 実行権限を付与
 chmod +x scripts/start_enhanced_fqdn_monitoring.sh
 
-# 監視開始（データ送信の有効/無効を選択可能）
+# 監視開始
 ./scripts/start_enhanced_fqdn_monitoring.sh
 ```
 
@@ -44,12 +44,194 @@ chmod +x scripts/start_enhanced_fqdn_monitoring.sh
 ./scripts/stop_enhanced_monitoring.sh
 ```
 
-## 🛠️ Requirements
+## 🔧 Shell Scripts Reference
 
-- macOS（Accessibility権限）
-- Go 1.21以上
-- Python 3.x
-- sudo権限（DNS監視用）
+利用可能なスクリプトとその使用方法：
+
+### `start_enhanced_fqdn_monitoring.sh` - メイン起動スクリプト
+```bash
+# 実行権限付与
+chmod +x scripts/start_enhanced_fqdn_monitoring.sh
+
+# 実行
+./scripts/start_enhanced_fqdn_monitoring.sh
+```
+
+**機能**:
+- 前提条件チェック（Go、Python3、必要ディレクトリ）
+- macOS権限チェック（Accessibility、sudo）
+- `.env`ファイルからの自動設定読み込み
+- データ送信設定の対話的入力（.envファイルがない場合）
+- Go Agentと Python Web UIの並行起動
+- ブラウザの自動オープン
+- ログファイルの追跡
+
+**出力ログ**:
+- `~/.roiagent/logs/agent.log` - Go Agent
+- `~/.roiagent/logs/webui.log` - Python Web UI
+
+### `stop_enhanced_monitoring.sh` - 停止スクリプト
+```bash
+./scripts/stop_enhanced_monitoring.sh
+```
+
+**機能**:
+- すべてのROI Agentプロセスを安全に停止
+- tcpdumpプロセスの終了（sudo権限で）
+- Go AgentとWeb UIプロセスの終了
+
+### `test.sh` - 統合テストスクリプト
+```bash
+# 実行権限付与
+chmod +x scripts/test.sh
+
+# 全テスト実行
+./scripts/test.sh all
+
+# 個別テスト
+./scripts/test.sh env              # 環境変数設定テスト
+./scripts/test.sh build            # ビルドテスト
+./scripts/test.sh data-sender      # データ送信機能テスト
+./scripts/test.sh permissions      # macOS権限確認
+./scripts/test.sh web              # Web UI動作テスト
+./scripts/test.sh status           # 現在の動作状況確認
+./scripts/test.sh clean            # クリーンアップ
+./scripts/test.sh help             # ヘルプ表示
+```
+
+**機能**:
+- Go/Python3インストール確認
+- 必要ディレクトリの存在確認
+- .envファイル設定の確認と検証
+- コンパイル/ビルドテスト
+- データ送信接続テスト
+- macOS権限状態確認
+- Flask依存関係チェック
+- プロセス動作状況確認
+- 古いファイルの自動クリーンアップ
+
+### `build_mac_app.sh` - Macアプリビルドスクリプト
+```bash
+# 実行権限付与
+chmod +x scripts/build_mac_app.sh
+
+# アプリビルド
+./scripts/build_mac_app.sh
+```
+
+**機能**:
+- アプリアイコン準備（`public/icon.png`から）
+- Go AgentとData Senderのバイナリビルド
+- Python Web UIの統合
+- Mac App Bundle（`.app`）の作成
+- 実行権限設定とスクリプト統合
+- `build/ROI Agent.app`への出力
+
+**前提条件**:
+- `public/icon.png`にアプリアイコンを配置（512x512px推奨）
+
+### `setup_data_transmission.sh` - データ送信セットアップ
+```bash
+# 実行権限付与
+chmod +x scripts/setup_data_transmission.sh
+
+# セットアップ実行
+./scripts/setup_data_transmission.sh
+```
+
+**機能**:
+- Data Senderバイナリの自動ビルド
+- 対話的な設定入力（サーバーURL、APIキー、送信間隔）
+- `.env`ファイルの自動作成
+- 設定検証とテスト送信
+- データ送信の有効化
+
+### `update_dependencies.sh` - 依存関係更新
+```bash
+# 実行権限付与
+chmod +x scripts/update_dependencies.sh
+
+# 依存関係更新
+./scripts/update_dependencies.sh
+```
+
+**機能**:
+- Go modules依存関係の更新（`go get -u ./...`）
+- 不要な依存関係の削除（`go mod tidy`）
+- Python依存関係の更新（`pip3 install --upgrade`）
+- 全ディレクトリ（agent、data-sender、debug、windows）での一括更新
+
+### `check_unused_go_files.sh` - 未使用Goファイル検出
+```bash
+# 実行権限付与
+chmod +x scripts/check_unused_go_files.sh
+
+# 検出実行
+./scripts/check_unused_go_files.sh
+```
+
+**機能**:
+- 各ディレクトリのGo modulesとファイル構成の確認
+- main関数やexport関数の有無チェック
+- 未使用ファイルの検出と推奨アクション表示
+- プロジェクト全体のGoファイル構成レポート
+
+## 📡 Data Transmission
+
+### 設定方法
+
+```bash
+# .envファイルを作成
+cd data-sender
+cat > .env << EOF
+ROI_AGENT_BASE_URL=https://api.yourserver.com/v1/device
+ROI_AGENT_API_KEY=your-actual-api-key
+ROI_AGENT_INTERVAL_MINUTES=10
+EOF
+```
+
+### 送信されるデータ形式
+
+**エンドポイント**: `POST {BASE_URL}`
+
+**ヘッダー**:
+```
+Content-Type: application/json
+X-API-Key: {API_KEY}
+User-Agent: ROI-Agent/1.0.0
+```
+
+**ペイロード例**:
+```json
+{
+  "device_id": "MacBook-Pro-1752306890",
+  "timestamp": "2025-07-19T00:25:00Z",
+  "interval_minutes": 10,
+  "apps": [
+    {
+      "active_app": "Cursor",
+      "focused_app": "Cursor",
+      "focus_time_seconds": 180,
+      "timestamp": "2025-07-19T00:25:00Z"
+    }
+  ],
+  "networks": [
+    {
+      "fqdn": "www.yahoo.co.jp",
+      "port": 443,
+      "access_count": 3,
+      "protocol": "HTTPS",
+      "timestamp": "2025-07-19T00:25:00Z"
+    }
+  ],
+  "metadata": {
+    "os_version": "macOS",
+    "agent_version": "1.0.0",
+    "total_apps": 18,
+    "total_domains": 3
+  }
+}
+```
 
 ## 📱 Mac App Creation
 
@@ -64,123 +246,67 @@ chmod +x scripts/build_mac_app.sh
 ./scripts/build_mac_app.sh
 ```
 
-Macアプリでは、`.env`ファイルが設定されている場合、データ送信がデフォルトで有効になります。
+ビルドされたアプリは `build/ROI Agent.app` に作成されます。
 
-## 📡 Data Transmission (Optional)
+**Mac App特徴**:
+- `.env`ファイルが設定されていればデータ送信が自動有効化
+- アプリケーションフォルダにドラッグ&ドロップで簡単インストール
+- システム起動時の自動実行設定可能
 
-### 基本セットアップ
-```bash
-# データ送信機能をセットアップ
-chmod +x scripts/setup_data_transmission.sh
-./scripts/setup_data_transmission.sh
+## 🛠️ Requirements
+
+- macOS（Accessibility権限）
+- Go 1.21以上
+- Python 3.x
+- sudo権限（DNS監視用）
+
+## 📁 File Structure
+
+```
+roi-agent/
+├── agent/
+│   ├── main.go              # メインエージェント
+│   └── go.mod
+├── data-sender/
+│   ├── main.go              # データ送信機能
+│   ├── config.go            # 設定管理
+│   ├── processor.go         # データ処理
+│   ├── sender.go            # HTTP送信
+│   ├── logger.go            # ログ機能
+│   ├── types.go             # データ型定義
+│   ├── utils.go             # ユーティリティ
+│   ├── .env                 # 環境変数設定
+│   └── go.mod
+├── web/
+│   ├── enhanced_app.py      # Flask Web UI
+│   ├── requirements.txt
+│   └── templates/
+│       └── enhanced_index.html
+├── scripts/
+│   ├── start_enhanced_fqdn_monitoring.sh  # 起動スクリプト
+│   ├── stop_enhanced_monitoring.sh        # 停止スクリプト
+│   ├── test.sh                           # 統合テストスクリプト
+│   ├── build_mac_app.sh                  # Macアプリビルド
+│   ├── setup_data_transmission.sh        # データ送信セットアップ
+│   ├── update_dependencies.sh            # 依存関係更新
+│   └── check_unused_go_files.sh          # 未使用ファイル検出
+├── public/
+│   └── icon.png             # アプリアイコン
+├── build/
+│   └── ROI Agent.app        # ビルド済みMacアプリ
+├── debug/                   # デバッグツール
+└── windows/                 # Windows版
 ```
 
-### 方法1: 環境変数（推奨）
-```bash
-# .envファイルを作成
-cd data-sender
-cp .env.example .env
+## 💾 Data Storage
 
-# .envファイルを編集
-echo "ROI_AGENT_BASE_URL=https://api.yourserver.com/v1/roi-agent" > .env
-echo "ROI_AGENT_API_KEY=your-actual-api-key-here" >> .env
-```
+データは `~/.roiagent/` に保存されます：
+- **データ**: `~/.roiagent/data/combined_YYYY-MM-DD.json`
+- **ログ**: `~/.roiagent/logs/`
+- **送信データ**: `~/.roiagent/transmission/`
+- **送信ログ**: `~/.roiagent/transmission_logs.json`
 
-**ℹ️ 重要**: `start_enhanced_fqdn_monitoring.sh` は `.env` ファイルがある場合は自動で設定を読み込みます。
-
-### 方法2: コマンドライン設定
-```bash
-# 現在の設定を確認
-./data-sender/data-sender config
-
-# データ送信を有効化
-./data-sender/data-sender enable https://api.yourserver.com/v1/roi-agent your-api-key
-
-# テスト送信
-./data-sender/data-sender process
-
-# データ送信を無効化
-./data-sender/data-sender disable
-```
-
-### 方法3: 環境変数で直接設定
-```bash
-export ROI_AGENT_BASE_URL="https://api.yourserver.com/v1/roi-agent"
-export ROI_AGENT_API_KEY="your-actual-api-key"
-
-# 監視開始（自動的に有効化）
-./scripts/start_enhanced_fqdn_monitoring.sh
-```
-
-### 送信されるデータ（10分間隔）
-
-**エンドポイント**: `POST {BASE_URL}/data`
-
-**ヘッダー**:
-```
-Content-Type: application/json
-X-API-Key: {API_KEY}
-User-Agent: ROI-Agent/1.0.0
-```
-
-**ペイロード例**:
-```json
-{
-  "device_id": "MacBook-Pro-1752306890",
-  "timestamp": "2025-07-12T07:00:00Z",
-  "interval_minutes": 10,
-  "apps": [
-    {
-      "active_app": "Google Chrome",
-      "focused_app": "Google Chrome",
-      "focus_time_seconds": 180,
-      "timestamp": "2025-07-12T07:00:00Z"
-    }
-  ],
-  "networks": [
-    {
-      "fqdn": "www.yahoo.co.jp",
-      "port": 443,
-      "access_count": 3,
-      "protocol": "HTTPS",
-      "timestamp": "2025-07-12T07:00:00Z"
-    },
-    {
-      "fqdn": "chatgpt.com",
-      "port": 443,
-      "access_count": 1,
-      "protocol": "HTTPS",
-      "timestamp": "2025-07-12T07:00:00Z"
-    }
-  ],
-  "metadata": {
-    "os_version": "macOS",
-    "agent_version": "1.0.0",
-    "total_apps": 15,
-    "total_domains": 8
-  }
-}
-```
-
-**送信されるデータ詳細**:
-
-**アプリケーション**:
-- `active_app`: 現在アクティブなアプリ名
-- `focused_app`: 現在フォーカス中のアプリ名  
-- `focus_time_seconds`: フォーカス時間（秒）
-
-**ネットワーク**:
-- `fqdn`: アクセス先FQDN（例: www.example.com）
-- `port`: ポート番号（例: 443）
-- `access_count`: 10分間のアクセス回数
-- `protocol`: プロトコル（HTTP/HTTPS）
-
-**メタデータ**:
-- `device_id`: デバイス固有識別子
-- `os_version`: OS版本
-- `agent_version`: エージェント版本
-- `total_apps`: アプリ総数
-- `total_domains`: ドメイン総数
+**ファイル清理**: 7日以上古いファイルは自動清理されます。
 
 ## 📊 Dashboard Features
 
@@ -200,150 +326,15 @@ User-Agent: ROI-Agent/1.0.0
 - **リアルタイム更新**: 15秒間隔の自動更新
 - **日付選択**: 過去データの表示
 
-## 📁 File Structure
-
-```
-roi-agent/
-├── agent/
-│   ├── main.go              # メインエージェント
-│   └── go.mod
-├── data-sender/
-│   ├── main.go              # データ送信機能
-│   ├── go.mod
-│   ├── .env.example         # 環境変数テンプレート
-│   ├── .env                 # 実際の環境変数（自動作成）
-│   └── GO_DEPENDENCIES_GUIDE.md
-├── debug/
-│   ├── test_data_transmission.go  # データ送信テストツール
-│   ├── go.mod                     # Debug用Goモジュール
-│   ├── run_debug.sh               # 自動デバッグスクリプト
-│   └── README.md                  # Debugツール使用方法
-├── web/
-│   ├── enhanced_app.py      # Flask Web UI
-│   ├── requirements.txt
-│   └── templates/
-│       └── enhanced_index.html
-├── scripts/
-│   ├── start_enhanced_fqdn_monitoring.sh  # 起動（.env自動読み込み）
-│   ├── stop_enhanced_monitoring.sh        # 停止
-│   ├── build_mac_app.sh                   # Macアプリビルド
-│   ├── setup_data_transmission.sh         # データ送信セットアップ
-│   └── update_dependencies.sh             # Go依存関係更新
-├── public/
-│   └── icon.png             # アプリアイコン
-└── README.md
-```
-
-## 💾 Data Storage
-
-データは `~/.roiagent/` に保存されます：
-- **データ**: `~/.roiagent/data/combined_YYYY-MM-DD.json`
-- **ログ**: `~/.roiagent/logs/`
-- **送信データ**: `~/.roiagent/transmission/`
-- **設定**: `~/.roiagent/transmission_config.json`
-
-## 🔧 Troubleshooting
-
-### DNS監視が動作しない
-```bash
-# sudo権限を確認
-sudo tcpdump --version
-
-# DNS監視テスト（30秒）
-cd agent
-go run main.go test-dns
-```
-
-### Accessibility権限エラー
-```bash
-# 権限確認
-go run main.go check-permissions
-```
-
-### Web UIでデータが表示されない
-```bash
-# データファイル確認
-ls -la ~/.roiagent/data/
-
-# API直接テスト
-curl -s http://localhost:5002/api/data | jq '.'
-curl -s http://localhost:5002/api/status | jq '.'
-```
-
-### データ送信のトラブルシューティング
-```bash
-# 設定確認
-./data-sender/data-sender config
-
-# 送信テスト
-./data-sender/data-sender process
-
-# 送信ログ確認
-ls -la ~/.roiagent/transmission/
-```
-
-### デバッグツールでのAPIテスト
-```bash
-# デバッグフォルダで自動テスト実行
-cd debug
-chmod +x run_debug.sh
-./run_debug.sh
-
-# または手動でテスト
-go run test_data_transmission.go
-```
-
-デバッグツールの詳細な使用方法は `debug/README.md` を参照してください。
-
-## 🔒 Security & Privacy
-
-- **ローカル監視のみ**: データ送信は完全にオプション
-- **DNS監視**: 暗号化されていないDNSクエリのみ対象
-- **sudo権限**: tcpdumpによるネットワーク監視にのみ使用
-- **データ保存**: すべてローカルマシンに保存
-
-### データ送信セキュリティ（オプション）
-- **明示的な有効化**: 起動時またはコマンドで明示的に有効化
-- **HTTPS暗号化**: すべてのデータ送信はHTTPSで暗号化
-- **APIキー認証**: サーバー認証にはAPIキーが必要
-- **ローカルログ**: 送信データはローカルにも保存
-- **設定管理**: 環境変数または設定ファイルで管理
-
 ## 📝 Tech Stack
 
 - **Backend**: Go (DNS監視エージェント)
 - **Frontend**: Python Flask + HTML/CSS/JavaScript
 - **Monitoring**: `tcpdump` (DNS) + macOS Accessibility API (アプリ)
 - **Data Transmission**: Go + HTTP Client
-- **Update Frequency**: 15秒間隔（監視）/ 10分間隔（送信）
+- **Update Frequency**: 15秒間隔（監視）/ 設定可能間隔（送信）
 
-## 🔄 Go Dependencies
-
-```bash
-# 依存関係追加
-go get github.com/joho/godotenv
-
-# 依存関係更新
-go get -u ./...
-
-# 不要な依存関係削除
-go mod tidy
-
-# 依存関係一覧
-go list -m all
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
 
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details
-
----
-
-**ℹ️ Note**: このツールはローカル監視専用です。データ送信機能は完全にオプションで、明示的に有効化しない限りデータは外部に送信されません。プライバシーを重視し、すべてのデータはローカルマシンにも保存されます。
