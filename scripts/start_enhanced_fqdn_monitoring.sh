@@ -77,6 +77,7 @@ if [ -f "$ENV_FILE" ]; then
         # Export the variable
         if [[ "$line" =~ ^[[:space:]]*([^=]+)=(.*)$ ]]; then
             export "${BASH_REMATCH[1]}"="${BASH_REMATCH[2]}"
+            echo "📝 Loaded: ${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
         fi
     done < "$ENV_FILE"
     
@@ -138,7 +139,22 @@ echo "📁 Log directory: $LOG_DIR"
 # Start Go agent with sudo for tcpdump permissions
 echo "🚀 Starting Go agent (tcpdump DNS Monitor)..."
 cd "$PROJECT_ROOT/agent"
-nohup sudo go run main.go > "$LOG_DIR/agent.log" 2>&1 &
+
+# Pass environment variables explicitly to sudo
+SUDO_ENV=""
+if [ "$ROI_AGENT_BASE_URL" != "" ]; then
+    SUDO_ENV="$SUDO_ENV ROI_AGENT_BASE_URL=$ROI_AGENT_BASE_URL"
+fi
+if [ "$ROI_AGENT_API_KEY" != "" ]; then
+    SUDO_ENV="$SUDO_ENV ROI_AGENT_API_KEY=$ROI_AGENT_API_KEY"
+fi
+if [ "$ROI_AGENT_INTERVAL_MINUTES" != "" ]; then
+    SUDO_ENV="$SUDO_ENV ROI_AGENT_INTERVAL_MINUTES=$ROI_AGENT_INTERVAL_MINUTES"
+    echo "📅 Setting transmission interval: $ROI_AGENT_INTERVAL_MINUTES minutes"
+fi
+
+echo "🔧 Passing environment variables to agent: $SUDO_ENV"
+nohup sudo env $SUDO_ENV go run main.go > "$LOG_DIR/agent.log" 2>&1 &
 AGENT_PID=$!
 echo "   Agent PID: $AGENT_PID"
 
