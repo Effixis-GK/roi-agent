@@ -1,5 +1,7 @@
 # Binaries and executables
 agent/monitor
+data-sender/data-sender
+debug/debug-tool
 *.exe
 *.exe~
 *.dll
