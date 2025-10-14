@@ -1,0 +1,195 @@
+name: Build and Release ROI Agent
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # v1.0.0 のようなタグでトリガー
+  workflow_dispatch:  # 手動トリガーも可能
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: false
+        default: 'dev'
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federationに必要
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Extract version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          elif [[ "${{ github.event.inputs.version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+      
+      - name: Build Windows
+        run: |
+          cd data-sender
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o roi-agent-windows.exe .
+          echo "✅ Windows build completed"
+          ls -lh roi-agent-windows.exe
+      
+      - name: Build macOS (Intel)
+        run: |
+          cd data-sender
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o roi-agent-macos-intel .
+          echo "✅ macOS Intel build completed"
+          ls -lh roi-agent-macos-intel
+      
+      - name: Build macOS (Apple Silicon)
+        run: |
+          cd data-sender
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o roi-agent-macos-arm64 .
+          echo "✅ macOS Apple Silicon build completed"
+          ls -lh roi-agent-macos-arm64
+      
+      - name: Calculate checksums
+        id: checksums
+        run: |
+          cd data-sender
+          WIN_SHA=$(sha256sum roi-agent-windows.exe | awk '{print $1}')
+          MAC_INTEL_SHA=$(sha256sum roi-agent-macos-intel | awk '{print $1}')
+          MAC_ARM64_SHA=$(sha256sum roi-agent-macos-arm64 | awk '{print $1}')
+          
+          echo "windows_sha=${WIN_SHA}" >> $GITHUB_OUTPUT
+          echo "macos_intel_sha=${MAC_INTEL_SHA}" >> $GITHUB_OUTPUT
+          echo "macos_arm64_sha=${MAC_ARM64_SHA}" >> $GITHUB_OUTPUT
+          
+          echo "Windows SHA256: ${WIN_SHA}"
+          echo "macOS Intel SHA256: ${MAC_INTEL_SHA}"
+          echo "macOS ARM64 SHA256: ${MAC_ARM64_SHA}"
+      
+      - name: Create version.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            COMMIT_MSG="Manual release: ${VERSION}"
+          fi
+          
+          cat > version.json << EOF
+          {
+            "version": "${VERSION}",
+            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "changelog": "${COMMIT_MSG}",
+            "commit_sha": "${GITHUB_SHA}",
+            "sha256": {
+              "windows": "${{ steps.checksums.outputs.windows_sha }}",
+              "macos_intel": "${{ steps.checksums.outputs.macos_intel_sha }}",
+              "macos_arm64": "${{ steps.checksums.outputs.macos_arm64_sha }}"
+            },
+            "download_urls": {
+              "windows": "gs://roi-agent-releases/${VERSION}/windows/roi-agent.exe",
+              "macos_intel": "gs://roi-agent-releases/${VERSION}/macos/roi-agent-intel",
+              "macos_arm64": "gs://roi-agent-releases/${VERSION}/macos/roi-agent-arm64"
+            }
+          }
+          EOF
+          
+          echo "version.json created:"
+          cat version.json
+      
+      # Workload Identity Federationで認証
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Upload to Cloud Storage (versioned)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BUCKET="gs://roi-agent-releases"
+          
+          echo "Uploading to ${BUCKET}/${VERSION}/"
+          
+          # Windows
+          gsutil cp data-sender/roi-agent-windows.exe ${BUCKET}/${VERSION}/windows/roi-agent.exe
+          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/windows/roi-agent.exe
+          
+          # macOS Intel
+          gsutil cp data-sender/roi-agent-macos-intel ${BUCKET}/${VERSION}/macos/roi-agent-intel
+          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/roi-agent-intel
+          
+          # macOS ARM64
+          gsutil cp data-sender/roi-agent-macos-arm64 ${BUCKET}/${VERSION}/macos/roi-agent-arm64
+          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/roi-agent-arm64
+          
+          # version.json
+          gsutil cp version.json ${BUCKET}/${VERSION}/version.json
+          gsutil setmeta -h "Cache-Control:public, max-age=60" ${BUCKET}/${VERSION}/version.json
+          
+          echo "✅ Versioned files uploaded successfully"
+      
+      - name: Upload to Cloud Storage (latest)
+        run: |
+          BUCKET="gs://roi-agent-releases"
+          
+          echo "Updating ${BUCKET}/latest/"
+          
+          # Windows
+          gsutil cp data-sender/roi-agent-windows.exe ${BUCKET}/latest/windows/roi-agent.exe
+          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/windows/roi-agent.exe
+          
+          # macOS Intel
+          gsutil cp data-sender/roi-agent-macos-intel ${BUCKET}/latest/macos/roi-agent-intel
+          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/roi-agent-intel
+          
+          # macOS ARM64
+          gsutil cp data-sender/roi-agent-macos-arm64 ${BUCKET}/latest/macos/roi-agent-arm64
+          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/roi-agent-arm64
+          
+          # version.json
+          gsutil cp version.json ${BUCKET}/latest/version.json
+          gsutil setmeta -h "Cache-Control:public, max-age=60" ${BUCKET}/latest/version.json
+          
+          echo "✅ Latest files updated successfully"
+      
+      - name: Verify upload
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BUCKET="gs://roi-agent-releases"
+          
+          echo "Verifying uploaded files..."
+          gsutil ls -lh ${BUCKET}/${VERSION}/
+          echo ""
+          gsutil ls -lh ${BUCKET}/latest/
+          echo ""
+          echo "✅ All files verified"
+      
+      - name: Summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "========================================"
+          echo "✅ Build and Release Completed!"
+          echo "========================================"
+          echo ""
+          echo "Version: ${VERSION}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo ""
+          echo "Files uploaded to Cloud Storage"
+          echo "Access via roi-dashboard download feature"
+          echo ""

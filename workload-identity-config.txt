@@ -1,0 +1,9 @@
+# Workload Identity Federation設定情報
+# GitHub Secretsに登録してください
+
+GCP_PROJECT_ID=teak-frame-465410-a0
+GCP_SA_EMAIL=github-actions-agent@teak-frame-465410-a0.iam.gserviceaccount.com
+GCP_WORKLOAD_IDENTITY_PROVIDER=projects/607617540267/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+
+# GitHub Secrets登録URL
+https://github.com/Effixis-GK/roi-agent/settings/secrets/actions
