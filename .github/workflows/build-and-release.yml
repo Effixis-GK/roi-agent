@@ -82,88 +82,6 @@ jobs:
           echo "macOS Intel SHA256: ${MAC_INTEL_SHA}"
           echo "macOS ARM64 SHA256: ${MAC_ARM64_SHA}"
       
-      - name: Create macOS .app bundles
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          
-          # Intel版.appバンドル作成
-          echo "✅ Creating ROI-Agent-Intel.app bundle..."
-          mkdir -p "ROI-Agent-Intel.app/Contents/MacOS"
-          mkdir -p "ROI-Agent-Intel.app/Contents/Resources"
-          
-          cp data-sender/roi-agent-macos-intel "ROI-Agent-Intel.app/Contents/MacOS/ROI-Agent"
-          chmod +x "ROI-Agent-Intel.app/Contents/MacOS/ROI-Agent"
-          
-          # Info.plist作成
-          cat > "ROI-Agent-Intel.app/Contents/Info.plist" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>ROI-Agent</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.effixis.roi-agent</string>
-              <key>CFBundleName</key>
-              <string>ROI Agent</string>
-              <key>CFBundleVersion</key>
-              <string>VERSION_PLACEHOLDER</string>
-              <key>CFBundleShortVersionString</key>
-              <string>VERSION_PLACEHOLDER</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-          
-          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" "ROI-Agent-Intel.app/Contents/Info.plist"
-          
-          # ZIP化
-          zip -r ROI-Agent-Intel.app.zip ROI-Agent-Intel.app
-          echo "✅ ROI-Agent-Intel.app.zip created"
-          
-          # M1/M2版.appバンドル作成
-          echo "✅ Creating ROI-Agent-M1.app bundle..."
-          mkdir -p "ROI-Agent-M1.app/Contents/MacOS"
-          mkdir -p "ROI-Agent-M1.app/Contents/Resources"
-          
-          cp data-sender/roi-agent-macos-arm64 "ROI-Agent-M1.app/Contents/MacOS/ROI-Agent"
-          chmod +x "ROI-Agent-M1.app/Contents/MacOS/ROI-Agent"
-          
-          # Info.plist作成
-          cat > "ROI-Agent-M1.app/Contents/Info.plist" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>ROI-Agent</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.effixis.roi-agent</string>
-              <key>CFBundleName</key>
-              <string>ROI Agent</string>
-              <key>CFBundleVersion</key>
-              <string>VERSION_PLACEHOLDER</string>
-              <key>CFBundleShortVersionString</key>
-              <string>VERSION_PLACEHOLDER</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-          
-          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" "ROI-Agent-M1.app/Contents/Info.plist"
-          
-          # ZIP化
-          zip -r ROI-Agent-M1.app.zip ROI-Agent-M1.app
-          echo "✅ ROI-Agent-M1.app.zip created"
-          
-          ls -lh *.app.zip
-      
       - name: Create version.json
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -193,8 +111,8 @@ jobs:
             },
             "download_urls": {
               "windows": "gs://roi-agent-releases/${VERSION}/windows/roi-agent.exe",
-              "macos_intel_app": "gs://roi-agent-releases/${VERSION}/macos/ROI-Agent-Intel.app.zip",
-              "macos_arm64_app": "gs://roi-agent-releases/${VERSION}/macos/ROI-Agent-M1.app.zip"
+              "macos_intel": "gs://roi-agent-releases/${VERSION}/macos/roi-agent-intel",
+              "macos_arm64": "gs://roi-agent-releases/${VERSION}/macos/roi-agent-arm64"
             }
           }
           EOF
@@ -219,16 +137,17 @@ jobs:
           
           echo "Uploading to ${BUCKET}/${VERSION}/"
           
-          # Windows .exe
+          # Windows
           gsutil cp data-sender/roi-agent-windows.exe ${BUCKET}/${VERSION}/windows/roi-agent.exe
           gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/windows/roi-agent.exe
           
-          # macOS .appバンドル (ZIP化)
-          gsutil cp ROI-Agent-Intel.app.zip ${BUCKET}/${VERSION}/macos/ROI-Agent-Intel.app.zip
-          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/ROI-Agent-Intel.app.zip
+          # macOS Intel
+          gsutil cp data-sender/roi-agent-macos-intel ${BUCKET}/${VERSION}/macos/roi-agent-intel
+          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/roi-agent-intel
           
-          gsutil cp ROI-Agent-M1.app.zip ${BUCKET}/${VERSION}/macos/ROI-Agent-M1.app.zip
-          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/ROI-Agent-M1.app.zip
+          # macOS ARM64
+          gsutil cp data-sender/roi-agent-macos-arm64 ${BUCKET}/${VERSION}/macos/roi-agent-arm64
+          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/roi-agent-arm64
           
           # version.json
           gsutil cp version.json ${BUCKET}/${VERSION}/version.json
@@ -242,16 +161,17 @@ jobs:
           
           echo "Updating ${BUCKET}/latest/"
           
-          # Windows .exe
+          # Windows
           gsutil cp data-sender/roi-agent-windows.exe ${BUCKET}/latest/windows/roi-agent.exe
           gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/windows/roi-agent.exe
           
-          # macOS .appバンドル (ZIP化)
-          gsutil cp ROI-Agent-Intel.app.zip ${BUCKET}/latest/macos/ROI-Agent-Intel.app.zip
-          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/ROI-Agent-Intel.app.zip
+          # macOS Intel
+          gsutil cp data-sender/roi-agent-macos-intel ${BUCKET}/latest/macos/roi-agent-intel
+          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/roi-agent-intel
           
-          gsutil cp ROI-Agent-M1.app.zip ${BUCKET}/latest/macos/ROI-Agent-M1.app.zip
-          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/ROI-Agent-M1.app.zip
+          # macOS ARM64
+          gsutil cp data-sender/roi-agent-macos-arm64 ${BUCKET}/latest/macos/roi-agent-arm64
+          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/roi-agent-arm64
           
           # version.json
           gsutil cp version.json ${BUCKET}/latest/version.json
