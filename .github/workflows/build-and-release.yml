@@ -3,23 +3,23 @@ name: Build and Release ROI Agent
 on:
   push:
     tags:
-      - 'v*.*.*'  # v1.0.0 のようなタグでトリガー
+      - 'v*.*.*'
   release:
-    types: [published]  # GitHub Releaseが公開されたとき
-  workflow_dispatch:  # 手動トリガーも可能
+    types: [published]
+  workflow_dispatch:
     inputs:
       version:
         description: 'Version to release (e.g., v1.0.0)'
         required: false
-        default: 'dev'
+        default: 'latest'
 
 jobs:
   build-and-upload:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest  # macOSに変更（sips, iconutil使用のため）
     
     permissions:
       contents: read
-      id-token: write  # Workload Identity Federationに必要
+      id-token: write
     
     steps:
       - name: Checkout code
@@ -40,94 +40,134 @@ jobs:
           elif [[ "${{ github.event_name }}" == "release" ]]; then
             VERSION="${{ github.event.release.tag_name }}"
           else
-            VERSION="dev-${GITHUB_SHA::7}"
+            VERSION="latest"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
       
-      - name: Download Go dependencies
+      - name: Install dependencies
         run: |
-          cd data-sender
+          cd agent
           go mod download
-          go mod verify
-          echo "✅ Dependencies downloaded and verified"
+          cd ../data-sender
+          go mod download
+          echo "✅ Go dependencies downloaded"
       
-      - name: Build Windows
+      # 1. Agent バイナリのビルド
+      - name: Build Agent (Intel)
+        run: |
+          cd agent
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../build/roi-agent-intel main.go
+          chmod +x ../build/roi-agent-intel
+          echo "✅ Agent Intel: $(du -h ../build/roi-agent-intel | cut -f1)"
+      
+      - name: Build Agent (ARM64)
+        run: |
+          cd agent
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../build/roi-agent-arm64 main.go
+          chmod +x ../build/roi-agent-arm64
+          echo "✅ Agent ARM64: $(du -h ../build/roi-agent-arm64 | cut -f1)"
+      
+      # 2. Data Sender バイナリのビルド
+      - name: Build Data Sender (Intel)
         run: |
           cd data-sender
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o roi-agent-windows.exe .
-          echo "✅ Windows build completed"
-          ls -lh roi-agent-windows.exe
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../build/data-sender-intel main.go config.go logger.go processor.go sender.go types.go utils.go
+          chmod +x ../build/data-sender-intel
+          echo "✅ Data Sender Intel: $(du -h ../build/data-sender-intel | cut -f1)"
       
-      - name: Build macOS (Intel)
+      - name: Build Data Sender (ARM64)
         run: |
           cd data-sender
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o roi-agent-macos-intel .
-          echo "✅ macOS Intel build completed"
-          ls -lh roi-agent-macos-intel
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../build/data-sender-arm64 main.go config.go logger.go processor.go sender.go types.go utils.go
+          chmod +x ../build/data-sender-arm64
+          echo "✅ Data Sender ARM64: $(du -h ../build/data-sender-arm64 | cut -f1)"
       
-      - name: Build macOS (Apple Silicon)
+      # 3. Windows版（オプション）
+      - name: Build Windows (optional)
         run: |
-          cd data-sender
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o roi-agent-macos-arm64 .
-          echo "✅ macOS Apple Silicon build completed"
-          ls -lh roi-agent-macos-arm64
+          cd agent
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o ../build/roi-agent.exe main.go
+          echo "✅ Windows: $(du -h ../build/roi-agent.exe | cut -f1)"
       
-      - name: Calculate checksums
-        id: checksums
+      # 4. リソースのZIP化
+      - name: Create Web UI archive
         run: |
-          cd data-sender
-          WIN_SHA=$(sha256sum roi-agent-windows.exe | awk '{print $1}')
-          MAC_INTEL_SHA=$(sha256sum roi-agent-macos-intel | awk '{print $1}')
-          MAC_ARM64_SHA=$(sha256sum roi-agent-macos-arm64 | awk '{print $1}')
-          
-          echo "windows_sha=${WIN_SHA}" >> $GITHUB_OUTPUT
-          echo "macos_intel_sha=${MAC_INTEL_SHA}" >> $GITHUB_OUTPUT
-          echo "macos_arm64_sha=${MAC_ARM64_SHA}" >> $GITHUB_OUTPUT
-          
-          echo "Windows SHA256: ${WIN_SHA}"
-          echo "macOS Intel SHA256: ${MAC_INTEL_SHA}"
-          echo "macOS ARM64 SHA256: ${MAC_ARM64_SHA}"
+          cd web
+          zip -r ../build/web.zip . -x "*.pyc" -x "__pycache__/*" -x ".DS_Store"
+          echo "✅ Web UI: $(du -h ../build/web.zip | cut -f1)"
       
+      - name: Create Scripts archive
+        run: |
+          cd scripts
+          zip -r ../build/scripts.zip . -x ".DS_Store"
+          echo "✅ Scripts: $(du -h ../build/scripts.zip | cut -f1)"
+      
+      # 5. AppIcon.icns作成（macOS-latest上で実行）
+      - name: Create AppIcon.icns
+        run: |
+          if [ -f "public/icon.png" ]; then
+            ICONSET_DIR="build/AppIcon.iconset"
+            mkdir -p "$ICONSET_DIR"
+            
+            echo "Creating iconset..."
+            sips -z 16 16 public/icon.png --out "$ICONSET_DIR/icon_16x16.png"
+            sips -z 32 32 public/icon.png --out "$ICONSET_DIR/icon_16x16@2x.png"
+            sips -z 32 32 public/icon.png --out "$ICONSET_DIR/icon_32x32.png"
+            sips -z 64 64 public/icon.png --out "$ICONSET_DIR/icon_32x32@2x.png"
+            sips -z 128 128 public/icon.png --out "$ICONSET_DIR/icon_128x128.png"
+            sips -z 256 256 public/icon.png --out "$ICONSET_DIR/icon_128x128@2x.png"
+            sips -z 256 256 public/icon.png --out "$ICONSET_DIR/icon_256x256.png"
+            sips -z 512 512 public/icon.png --out "$ICONSET_DIR/icon_256x256@2x.png"
+            sips -z 512 512 public/icon.png --out "$ICONSET_DIR/icon_512x512.png"
+            sips -z 1024 1024 public/icon.png --out "$ICONSET_DIR/icon_512x512@2x.png"
+            
+            iconutil -c icns "$ICONSET_DIR" -o "build/AppIcon.icns"
+            rm -rf "$ICONSET_DIR"
+            
+            echo "✅ AppIcon.icns: $(du -h build/AppIcon.icns | cut -f1)"
+          else
+            echo "⚠️  icon.png not found"
+          fi
+      
+      # 6. version.json作成
       - name: Create version.json
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_SHA=$(git rev-parse --short HEAD)
           
-          # changelogを取得（改行や制御文字を除去）
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            COMMIT_MSG="${{ github.event.release.body }}"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            COMMIT_MSG="Manual release: ${VERSION}"
-          else
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
-          fi
-          
-          # JSON安全な文字列に変換（改行やタブをスペースに）
-          COMMIT_MSG=$(echo "$COMMIT_MSG" | tr '\n\r\t' ' ' | tr -s ' ')
-          
-          cat > version.json << EOF
+          cat > build/version.json << EOF
           {
             "version": "${VERSION}",
-            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "changelog": "${COMMIT_MSG}",
-            "commit_sha": "${GITHUB_SHA}",
-            "sha256": {
-              "windows": "${{ steps.checksums.outputs.windows_sha }}",
-              "macos_intel": "${{ steps.checksums.outputs.macos_intel_sha }}",
-              "macos_arm64": "${{ steps.checksums.outputs.macos_arm64_sha }}"
-            },
-            "download_urls": {
-              "windows": "gs://roi-agent-releases/${VERSION}/windows/roi-agent.exe",
-              "macos_intel": "gs://roi-agent-releases/${VERSION}/macos/roi-agent-intel",
-              "macos_arm64": "gs://roi-agent-releases/${VERSION}/macos/roi-agent-arm64"
+            "release_date": "${BUILD_DATE}",
+            "commit": "${COMMIT_SHA}",
+            "changelog": "Complete .app bundle with AppIcon, Web UI, and launcher",
+            "features": [
+              "Application monitoring",
+              "DNS/Network monitoring",
+              "Web dashboard (localhost:5002)",
+              "Data transmission (10min interval)",
+              "Organization-specific API key"
+            ],
+            "platforms": {
+              "macos": {
+                "architectures": ["amd64", "arm64"],
+                "requires_accessibility": true,
+                "requires_sudo": true,
+                "icon_support": true
+              },
+              "windows": {
+                "architectures": ["amd64"]
+              }
             }
           }
           EOF
           
-          echo "version.json created:"
-          cat version.json
+          echo "✅ version.json created"
+          cat build/version.json
       
-      # Workload Identity Federationで認証
+      # 7. Cloud Storage認証
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -137,77 +177,88 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      - name: Upload to Cloud Storage (versioned)
+      # 8. 古いファイルを削除（コスト削減）
+      - name: Clean old files from Cloud Storage
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
           
-          echo "Uploading to ${BUCKET}/${VERSION}/"
+          echo "🗑️  Cleaning old files for version: ${VERSION}"
           
-          # Windows
-          gsutil cp data-sender/roi-agent-windows.exe ${BUCKET}/${VERSION}/windows/roi-agent.exe
-          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/windows/roi-agent.exe
-          
-          # macOS Intel
-          gsutil cp data-sender/roi-agent-macos-intel ${BUCKET}/${VERSION}/macos/roi-agent-intel
-          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/roi-agent-intel
-          
-          # macOS ARM64
-          gsutil cp data-sender/roi-agent-macos-arm64 ${BUCKET}/${VERSION}/macos/roi-agent-arm64
-          gsutil setmeta -h "Cache-Control:public, max-age=3600" ${BUCKET}/${VERSION}/macos/roi-agent-arm64
-          
-          # version.json
-          gsutil cp version.json ${BUCKET}/${VERSION}/version.json
-          gsutil setmeta -h "Cache-Control:public, max-age=60" ${BUCKET}/${VERSION}/version.json
-          
-          echo "✅ Versioned files uploaded successfully"
+          # latestディレクトリのみをクリーンアップ（バージョン付きは残す）
+          if [ "$VERSION" == "latest" ]; then
+            gsutil -m rm -f ${BUCKET}/latest/macos/* 2>/dev/null || true
+            gsutil -m rm -f ${BUCKET}/latest/macos/resources/* 2>/dev/null || true
+            gsutil -m rm -f ${BUCKET}/latest/windows/* 2>/dev/null || true
+            echo "✅ Old 'latest' files removed"
+          fi
       
-      - name: Upload to Cloud Storage (latest)
+      # 9. Cloud Storageへアップロード
+      - name: Upload to Cloud Storage
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
           
-          echo "Updating ${BUCKET}/latest/"
+          echo "☁️  Uploading to ${BUCKET}/${VERSION}/"
           
-          # Windows
-          gsutil cp data-sender/roi-agent-windows.exe ${BUCKET}/latest/windows/roi-agent.exe
-          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/windows/roi-agent.exe
+          # Binaries
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/roi-agent-intel ${BUCKET}/${VERSION}/macos/
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/roi-agent-arm64 ${BUCKET}/${VERSION}/macos/
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/data-sender-intel ${BUCKET}/${VERSION}/macos/
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/data-sender-arm64 ${BUCKET}/${VERSION}/macos/
           
-          # macOS Intel
-          gsutil cp data-sender/roi-agent-macos-intel ${BUCKET}/latest/macos/roi-agent-intel
-          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/roi-agent-intel
+          # Windows (optional)
+          if [ -f "build/roi-agent.exe" ]; then
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp build/roi-agent.exe ${BUCKET}/${VERSION}/windows/
+          fi
           
-          # macOS ARM64
-          gsutil cp data-sender/roi-agent-macos-arm64 ${BUCKET}/latest/macos/roi-agent-arm64
-          gsutil setmeta -h "Cache-Control:public, max-age=300" ${BUCKET}/latest/macos/roi-agent-arm64
+          # Resources
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/web.zip ${BUCKET}/${VERSION}/macos/resources/
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/scripts.zip ${BUCKET}/${VERSION}/macos/resources/
+          
+          # Icon files
+          if [ -f "public/icon.png" ]; then
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp public/icon.png ${BUCKET}/${VERSION}/macos/resources/
+          fi
+          
+          if [ -f "build/AppIcon.icns" ]; then
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp build/AppIcon.icns ${BUCKET}/${VERSION}/macos/resources/
+          fi
           
           # version.json
-          gsutil cp version.json ${BUCKET}/latest/version.json
-          gsutil setmeta -h "Cache-Control:public, max-age=60" ${BUCKET}/latest/version.json
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp build/version.json ${BUCKET}/${VERSION}/
           
-          echo "✅ Latest files updated successfully"
+          echo "✅ All files uploaded successfully"
       
+      # 10. 検証
       - name: Verify upload
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
           
-          echo "Verifying uploaded files..."
+          echo "📁 Uploaded files:"
           gsutil ls -lh ${BUCKET}/${VERSION}/
+          gsutil ls -lh ${BUCKET}/${VERSION}/macos/
+          gsutil ls -lh ${BUCKET}/${VERSION}/macos/resources/
+          
           echo ""
-          gsutil ls -lh ${BUCKET}/latest/
-          echo ""
-          echo "✅ All files verified"
+          echo "✅ Upload verified"
       
-      - name: Summary
+      # 11. サマリー
+      - name: Build Summary
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          
           echo "========================================"
-          echo "✅ Build and Release Completed!"
+          echo "✅ ROI Agent Build Complete!"
           echo "========================================"
           echo ""
           echo "Version: ${VERSION}"
-          echo "Commit: ${GITHUB_SHA}"
+          echo "Commit: $(git rev-parse --short HEAD)"
           echo ""
-          echo "Files uploaded to Cloud Storage"
-          echo "Access via roi-dashboard download feature"
+          echo "📦 Built files:"
+          ls -lh build/
           echo ""
+          echo "☁️  Cloud Storage: gs://roi-agent-releases/${VERSION}/"
+          echo ""
+          echo "🎉 Ready for download via ROI Dashboard"
