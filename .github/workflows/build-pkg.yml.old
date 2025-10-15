@@ -38,7 +38,7 @@ jobs:
           else
             VERSION="latest"
           fi
-          # Remove 'v' prefix
+          # Remove 'v' prefix if present
           VERSION=${VERSION#v}
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
@@ -66,35 +66,28 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      - name: Clean old files from Cloud Storage
-        run: |
-          BUCKET="gs://roi-agent-releases"
-          echo "🗑️  Cleaning old files from latest/"
-          gsutil -m rm -f ${BUCKET}/latest/macos/* 2>/dev/null || true
-          echo "✅ Old files removed"
-      
       - name: Upload to Cloud Storage
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
           BUILD_DIR="build/pkg"
           
-          echo "☁️  Uploading PKG files to Cloud Storage..."
+          echo "Uploading PKG files to Cloud Storage..."
           
           # ARM64 PKG
           if [ -f "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg" ]; then
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg" \
+            gsutil -h "Cache-Control:no-cache" cp "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg" \
               "${BUCKET}/latest/macos/"
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256" \
+            gsutil -h "Cache-Control:no-cache" cp "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256" \
               "${BUCKET}/latest/macos/"
             echo "✅ ARM64 PKG uploaded"
           fi
           
           # x64 PKG
           if [ -f "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg" ]; then
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg" \
+            gsutil -h "Cache-Control:no-cache" cp "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg" \
               "${BUCKET}/latest/macos/"
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256" \
+            gsutil -h "Cache-Control:no-cache" cp "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256" \
               "${BUCKET}/latest/macos/"
             echo "✅ x64 PKG uploaded"
           fi
@@ -120,15 +113,18 @@ jobs:
           }
           EOF
           
-          gsutil -h "Cache-Control:no-cache, max-age=0" cp version.json "${BUCKET}/latest/"
+          gsutil -h "Cache-Control:no-cache" cp version.json "${BUCKET}/latest/"
           
           echo "✅ All files uploaded"
       
       - name: Verify upload
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
-          echo "📁 Uploaded files:"
+          
+          echo "Verifying uploaded files..."
           gsutil ls -lh "${BUCKET}/latest/macos/"
+          
           echo ""
           echo "✅ Upload verified"
       
@@ -142,12 +138,11 @@ jobs:
           echo ""
           echo "Version: ${VERSION}"
           echo "Format: PKG (macOS Installer)"
-          echo "Target: Background Service (LaunchAgent)"
           echo ""
           echo "Built packages:"
-          ls -lh build/pkg/*.pkg 2>/dev/null || echo "No PKG files found"
+          ls -lh build/pkg/*.pkg
           echo ""
           echo "SHA256 checksums:"
-          cat build/pkg/*.sha256 2>/dev/null || echo "No SHA256 files found"
+          cat build/pkg/*.sha256
           echo ""
           echo "🎉 Ready for distribution"
