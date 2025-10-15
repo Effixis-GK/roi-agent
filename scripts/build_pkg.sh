@@ -11,7 +11,7 @@ echo "========================================"
 # 設定
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/pkg"
-VERSION="${1:-1.0.4}"
+VERSION="${1:-1.0.5}"
 ARCH="${2:-arm64}"
 
 if [ "$ARCH" = "arm64" ]; then
@@ -29,12 +29,15 @@ echo "Building for: macOS $ARCH_LABEL"
 echo "Version: $VERSION"
 echo ""
 
-# クリーンアップ
-rm -rf "$BUILD_DIR"
+# ビルドディレクトリ作成（削除しない）
 mkdir -p "$BUILD_DIR"
 
+# アーキテクチャごとに異なるペイロードディレクトリを使用
+PAYLOAD_DIR="$BUILD_DIR/payload_${ARCH_LABEL}"
+rm -rf "$PAYLOAD_DIR"  # アーキテクチャ固有のディレクトリのみ削除
+mkdir -p "$PAYLOAD_DIR"
+
 # インストール先のディレクトリ構造
-PAYLOAD_DIR="$BUILD_DIR/payload"
 INSTALL_DIR="$PAYLOAD_DIR/Applications/ROI Agent"
 RESOURCES_DIR="$INSTALL_DIR/Resources"
 BIN_DIR="$INSTALL_DIR/bin"
@@ -256,6 +259,9 @@ if [ $? -eq 0 ]; then
     echo "   SHA256: $SHA256"
     echo "$SHA256" > "$PKG_OUTPUT.sha256"
     echo ""
+    
+    # ペイロードディレクトリをクリーンアップ
+    rm -rf "$PAYLOAD_DIR"
     
     echo "🎉 Build completed!"
 else
