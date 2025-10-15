@@ -57,6 +57,15 @@ jobs:
         run: |
           ./scripts/build_pkg.sh ${{ steps.version.outputs.version }} x64
       
+      - name: List built files
+        run: |
+          echo "📁 Built PKG files:"
+          ls -lh build/pkg/
+          echo ""
+          echo "Checking specific files:"
+          ls -lh build/pkg/ROI-Agent-macOS-arm64-${{ steps.version.outputs.version }}.pkg || echo "❌ ARM64 PKG not found"
+          ls -lh build/pkg/ROI-Agent-macOS-x64-${{ steps.version.outputs.version }}.pkg || echo "❌ x64 PKG not found"
+      
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -80,26 +89,58 @@ jobs:
           BUILD_DIR="build/pkg"
           
           echo "☁️  Uploading PKG files to Cloud Storage..."
+          echo "Version: ${VERSION}"
+          echo "Build directory: ${BUILD_DIR}"
+          echo ""
           
           # ARM64 PKG
-          if [ -f "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg" ]; then
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg" \
-              "${BUCKET}/latest/macos/"
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256" \
-              "${BUCKET}/latest/macos/"
+          ARM64_PKG="${BUILD_DIR}/ROI-Agent-macOS-arm64-${VERSION}.pkg"
+          ARM64_SHA="${BUILD_DIR}/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256"
+          
+          echo "Checking ARM64 files:"
+          echo "  PKG: ${ARM64_PKG}"
+          ls -lh "${ARM64_PKG}" || echo "  ❌ ARM64 PKG not found"
+          echo "  SHA: ${ARM64_SHA}"
+          ls -lh "${ARM64_SHA}" || echo "  ❌ ARM64 SHA not found"
+          echo ""
+          
+          if [ -f "${ARM64_PKG}" ]; then
+            echo "Uploading ARM64 PKG..."
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${ARM64_PKG}" "${BUCKET}/latest/macos/"
+            echo "Uploading ARM64 SHA256..."
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${ARM64_SHA}" "${BUCKET}/latest/macos/"
             echo "✅ ARM64 PKG uploaded"
+          else
+            echo "❌ ARM64 PKG file not found: ${ARM64_PKG}"
+            exit 1
           fi
           
           # x64 PKG
-          if [ -f "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg" ]; then
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg" \
-              "${BUCKET}/latest/macos/"
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "$BUILD_DIR/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256" \
-              "${BUCKET}/latest/macos/"
+          X64_PKG="${BUILD_DIR}/ROI-Agent-macOS-x64-${VERSION}.pkg"
+          X64_SHA="${BUILD_DIR}/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256"
+          
+          echo ""
+          echo "Checking x64 files:"
+          echo "  PKG: ${X64_PKG}"
+          ls -lh "${X64_PKG}" || echo "  ❌ x64 PKG not found"
+          echo "  SHA: ${X64_SHA}"
+          ls -lh "${X64_SHA}" || echo "  ❌ x64 SHA not found"
+          echo ""
+          
+          if [ -f "${X64_PKG}" ]; then
+            echo "Uploading x64 PKG..."
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${X64_PKG}" "${BUCKET}/latest/macos/"
+            echo "Uploading x64 SHA256..."
+            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${X64_SHA}" "${BUCKET}/latest/macos/"
             echo "✅ x64 PKG uploaded"
+          else
+            echo "❌ x64 PKG file not found: ${X64_PKG}"
+            exit 1
           fi
           
           # Version info
+          echo ""
+          echo "Creating version.json..."
           cat > version.json << EOF
           {
             "version": "${VERSION}",
@@ -120,15 +161,19 @@ jobs:
           }
           EOF
           
+          echo "Uploading version.json..."
           gsutil -h "Cache-Control:no-cache, max-age=0" cp version.json "${BUCKET}/latest/"
           
-          echo "✅ All files uploaded"
+          echo ""
+          echo "✅ All files uploaded successfully"
       
       - name: Verify upload
         run: |
           BUCKET="gs://roi-agent-releases"
           echo "📁 Uploaded files:"
           gsutil ls -lh "${BUCKET}/latest/macos/"
+          echo ""
+          gsutil ls -lh "${BUCKET}/latest/version.json"
           echo ""
           echo "✅ Upload verified"
       
