@@ -6,22 +6,74 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v2"
 )
 
 // Configuration for data transmission
 type Config struct {
-	BaseURL  string `json:"base_url"`
-	APIKey   string `json:"api_key"`
-	DeviceID string `json:"device_id"`
-	Enabled  bool   `json:"enabled"`
+	BaseURL  string `json:"base_url" yaml:"base_url"`
+	APIKey   string `json:"api_key" yaml:"api_key"`
+	DeviceID string `json:"device_id" yaml:"device_id"`
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+}
+
+// YAMLConfig represents the structure of config.yaml
+type YAMLConfig struct {
+	APIURL   string `yaml:"api_url"`
+	APIKey   string `yaml:"api_key"`
+	DeviceID string `yaml:"device_id"`
+	OrgSlug  string `yaml:"org_slug"`
 }
 
 // loadConfig loads transmission configuration from file and environment variables
 func (ds *DataSender) loadConfig() {
+	// Try to load config.yaml first (for .app bundles)
+	if loaded := ds.tryLoadYAMLConfig(); loaded {
+		log.Printf("Loaded configuration from config.yaml")
+		return
+	}
+
+	// Fall back to .env file
+	ds.loadEnvConfig()
+}
+
+// tryLoadYAMLConfig attempts to load config from config.yaml
+func (ds *DataSender) tryLoadYAMLConfig() bool {
+	// Try multiple locations for config.yaml
+	configPaths := []string{
+		"config.yaml",                                    // Current directory
+		"../Resources/config.yaml",                      // .app bundle Resources
+		"../../Resources/config.yaml",                   // From MacOS folder
+		filepath.Join(os.Getenv("HOME"), ".roiagent", "config.yaml"), // Home directory
+	}
+
+	for _, configPath := range configPaths {
+		if data, err := ioutil.ReadFile(configPath); err == nil {
+			var yamlConfig YAMLConfig
+			if err := yaml.Unmarshal(data, &yamlConfig); err == nil {
+				// Successfully parsed YAML config
+				ds.config = Config{
+					BaseURL:  yamlConfig.APIURL,
+					APIKey:   yamlConfig.APIKey,
+					DeviceID: yamlConfig.DeviceID,
+					Enabled:  true,
+				}
+				log.Printf("Loaded config.yaml from: %s", configPath)
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// loadEnvConfig loads configuration from .env file
+func (ds *DataSender) loadEnvConfig() {
 	// Load .env file if it exists - try multiple locations
 	envPaths := []string{
 		".env",               // Current directory
