@@ -45,6 +45,13 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
       
+      - name: Download Go dependencies
+        run: |
+          cd data-sender
+          go mod download
+          go mod verify
+          echo "✅ Dependencies downloaded and verified"
+      
       - name: Build Windows
         run: |
           cd data-sender
