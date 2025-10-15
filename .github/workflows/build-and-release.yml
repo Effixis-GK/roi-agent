@@ -1,4 +1,4 @@
-name: Build and Release ROI Agent PKG
+name: Build and Upload ROI Agent Binaries
 
 on:
   push:
@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., v1.0.4)'
+        description: 'Version to release (e.g., v1.2.0)'
         required: false
         default: 'latest'
 
 jobs:
-  build-pkg:
+  build-binaries:
     runs-on: macos-latest
     
     permissions:
@@ -38,7 +38,6 @@ jobs:
           else
             VERSION="latest"
           fi
-          # Remove 'v' prefix
           VERSION=${VERSION#v}
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
@@ -48,23 +47,137 @@ jobs:
           cd agent && go mod download
           cd ../data-sender && go mod download
       
-      - name: Build PKG (ARM64)
+      - name: Build binaries
         run: |
-          chmod +x scripts/build_pkg.sh
-          ./scripts/build_pkg.sh ${{ steps.version.outputs.version }} arm64
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD_DIR="build/binaries"
+          mkdir -p "$BUILD_DIR"
+          
+          echo "🔨 Building binaries..."
+          
+          # Agent - ARM64
+          cd agent
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "../$BUILD_DIR/roi-agent-arm64" main.go
+          chmod +x "../$BUILD_DIR/roi-agent-arm64"
+          
+          # Agent - x64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "../$BUILD_DIR/roi-agent-x64" main.go
+          chmod +x "../$BUILD_DIR/roi-agent-x64"
+          
+          cd ..
+          
+          # Data Sender - ARM64
+          cd data-sender
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "../$BUILD_DIR/data-sender-arm64" .
+          chmod +x "../$BUILD_DIR/data-sender-arm64"
+          
+          # Data Sender - x64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "../$BUILD_DIR/data-sender-x64" .
+          chmod +x "../$BUILD_DIR/data-sender-x64"
+          
+          cd ..
+          
+          echo "✅ All binaries built"
+          ls -lh "$BUILD_DIR"
       
-      - name: Build PKG (x64)
+      - name: Create resources
         run: |
-          ./scripts/build_pkg.sh ${{ steps.version.outputs.version }} x64
+          RESOURCES_DIR="build/resources"
+          mkdir -p "$RESOURCES_DIR"
+          
+          # LaunchAgent plist
+          cat > "$RESOURCES_DIR/com.roiagent.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>Label</key>
+              <string>com.roiagent</string>
+              <key>ProgramArguments</key>
+              <array>
+                  <string>/Applications/ROI Agent/bin/roi-agent</string>
+              </array>
+              <key>RunAtLoad</key>
+              <true/>
+              <key>KeepAlive</key>
+              <dict>
+                  <key>SuccessfulExit</key>
+                  <false/>
+              </dict>
+              <key>StandardOutPath</key>
+              <string>/tmp/roiagent.stdout</string>
+              <key>StandardErrorPath</key>
+              <string>/tmp/roiagent.stderr</string>
+              <key>WorkingDirectory</key>
+              <string>/Applications/ROI Agent</string>
+          </dict>
+          </plist>
+          EOF
+          
+          # README
+          cat > "$RESOURCES_DIR/README.txt" << 'EOF'
+          ROI Agent - macOS Background Service
+          =====================================
+          
+          Pre-configured for your organization.
+          Simply install and the agent starts automatically.
+          
+          NO CONFIGURATION NEEDED
+          EOF
+          
+          # postinstall script template
+          cat > "$RESOURCES_DIR/postinstall" << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          CURRENT_USER=$(stat -f "%Su" /dev/console)
+          USER_HOME=$(eval echo ~$CURRENT_USER)
+          USER_ID=$(id -u "$CURRENT_USER")
+          
+          # Setup LaunchAgent
+          LAUNCH_AGENTS_DIR="$USER_HOME/Library/LaunchAgents"
+          mkdir -p "$LAUNCH_AGENTS_DIR"
+          chown "$CURRENT_USER:staff" "$LAUNCH_AGENTS_DIR"
+          
+          PLIST_SRC="/Applications/ROI Agent/Resources/com.roiagent.plist"
+          PLIST_DST="$LAUNCH_AGENTS_DIR/com.roiagent.plist"
+          
+          cp "$PLIST_SRC" "$PLIST_DST"
+          chown "$CURRENT_USER:staff" "$PLIST_DST"
+          chmod 644 "$PLIST_DST"
+          
+          # Create log directories
+          LOG_DIR="$USER_HOME/.roiagent/logs"
+          DATA_DIR="$USER_HOME/.roiagent/data"
+          
+          mkdir -p "$LOG_DIR" "$DATA_DIR"
+          chown -R "$CURRENT_USER:staff" "$USER_HOME/.roiagent"
+          
+          # Load LaunchAgent
+          sudo -u "$CURRENT_USER" launchctl bootstrap "gui/$USER_ID" "$PLIST_DST" 2>/dev/null || true
+          sudo -u "$CURRENT_USER" launchctl enable "gui/$USER_ID/com.roiagent" 2>/dev/null || true
+          sudo -u "$CURRENT_USER" launchctl kickstart -k "gui/$USER_ID/com.roiagent" 2>/dev/null || true
+          
+          echo "✅ ROI Agent installed and started!"
+          exit 0
+          EOF
+          
+          chmod +x "$RESOURCES_DIR/postinstall"
+          
+          echo "✅ Resources created"
       
-      - name: List built files
+      - name: Create version info
         run: |
-          echo "📁 Built PKG files:"
-          ls -lh build/pkg/
-          echo ""
-          echo "Checking specific files:"
-          ls -lh build/pkg/ROI-Agent-macOS-arm64-${{ steps.version.outputs.version }}.pkg || echo "❌ ARM64 PKG not found"
-          ls -lh build/pkg/ROI-Agent-macOS-x64-${{ steps.version.outputs.version }}.pkg || echo "❌ x64 PKG not found"
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          cat > build/version.json << EOF
+          {
+            "version": "${VERSION}",
+            "build_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "format": "binaries",
+            "note": "Binaries are packaged dynamically on download"
+          }
+          EOF
       
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -75,124 +188,32 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      - name: Clean old files from Cloud Storage
-        run: |
-          BUCKET="gs://roi-agent-releases"
-          echo "🗑️  Cleaning old files from latest/"
-          gsutil -m rm -f ${BUCKET}/latest/macos/* 2>/dev/null || true
-          echo "✅ Old files removed"
-      
       - name: Upload to Cloud Storage
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
-          BUILD_DIR="build/pkg"
           
-          echo "☁️  Uploading PKG files to Cloud Storage..."
-          echo "Version: ${VERSION}"
-          echo "Build directory: ${BUILD_DIR}"
-          echo ""
+          echo "☁️  Uploading to Cloud Storage..."
           
-          # ARM64 PKG
-          ARM64_PKG="${BUILD_DIR}/ROI-Agent-macOS-arm64-${VERSION}.pkg"
-          ARM64_SHA="${BUILD_DIR}/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256"
+          # Clean old files
+          gsutil -m rm -rf ${BUCKET}/latest/ 2>/dev/null || true
           
-          echo "Checking ARM64 files:"
-          echo "  PKG: ${ARM64_PKG}"
-          ls -lh "${ARM64_PKG}" || echo "  ❌ ARM64 PKG not found"
-          echo "  SHA: ${ARM64_SHA}"
-          ls -lh "${ARM64_SHA}" || echo "  ❌ ARM64 SHA not found"
-          echo ""
+          # Upload binaries
+          gsutil cp build/binaries/* ${BUCKET}/latest/macos/binaries/
           
-          if [ -f "${ARM64_PKG}" ]; then
-            echo "Uploading ARM64 PKG..."
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${ARM64_PKG}" "${BUCKET}/latest/macos/"
-            echo "Uploading ARM64 SHA256..."
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${ARM64_SHA}" "${BUCKET}/latest/macos/"
-            echo "✅ ARM64 PKG uploaded"
-          else
-            echo "❌ ARM64 PKG file not found: ${ARM64_PKG}"
-            exit 1
-          fi
+          # Upload resources
+          gsutil cp -r build/resources ${BUCKET}/latest/macos/
           
-          # x64 PKG
-          X64_PKG="${BUILD_DIR}/ROI-Agent-macOS-x64-${VERSION}.pkg"
-          X64_SHA="${BUILD_DIR}/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256"
+          # Upload version info
+          gsutil cp build/version.json ${BUCKET}/latest/
           
-          echo ""
-          echo "Checking x64 files:"
-          echo "  PKG: ${X64_PKG}"
-          ls -lh "${X64_PKG}" || echo "  ❌ x64 PKG not found"
-          echo "  SHA: ${X64_SHA}"
-          ls -lh "${X64_SHA}" || echo "  ❌ x64 SHA not found"
-          echo ""
-          
-          if [ -f "${X64_PKG}" ]; then
-            echo "Uploading x64 PKG..."
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${X64_PKG}" "${BUCKET}/latest/macos/"
-            echo "Uploading x64 SHA256..."
-            gsutil -h "Cache-Control:no-cache, max-age=0" cp "${X64_SHA}" "${BUCKET}/latest/macos/"
-            echo "✅ x64 PKG uploaded"
-          else
-            echo "❌ x64 PKG file not found: ${X64_PKG}"
-            exit 1
-          fi
-          
-          # Version info
-          echo ""
-          echo "Creating version.json..."
-          cat > version.json << EOF
-          {
-            "version": "${VERSION}",
-            "release_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "format": "PKG",
-            "platforms": {
-              "macos": {
-                "arm64": {
-                  "file": "ROI-Agent-macOS-arm64-${VERSION}.pkg",
-                  "sha256_file": "ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256"
-                },
-                "x64": {
-                  "file": "ROI-Agent-macOS-x64-${VERSION}.pkg",
-                  "sha256_file": "ROI-Agent-macOS-x64-${VERSION}.pkg.sha256"
-                }
-              }
-            }
-          }
-          EOF
-          
-          echo "Uploading version.json..."
-          gsutil -h "Cache-Control:no-cache, max-age=0" cp version.json "${BUCKET}/latest/"
-          
-          echo ""
-          echo "✅ All files uploaded successfully"
+          echo "✅ Upload complete"
       
       - name: Verify upload
         run: |
           BUCKET="gs://roi-agent-releases"
           echo "📁 Uploaded files:"
-          gsutil ls -lh "${BUCKET}/latest/macos/"
+          gsutil ls -lh "${BUCKET}/latest/macos/binaries/"
+          gsutil ls -lh "${BUCKET}/latest/macos/resources/"
           echo ""
-          gsutil ls -lh "${BUCKET}/latest/version.json"
-          echo ""
-          echo "✅ Upload verified"
-      
-      - name: Build Summary
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          
-          echo "========================================" 
-          echo "✅ ROI Agent PKG Build Complete!"
-          echo "========================================"
-          echo ""
-          echo "Version: ${VERSION}"
-          echo "Format: PKG (macOS Installer)"
-          echo "Target: Background Service (LaunchAgent)"
-          echo ""
-          echo "Built packages:"
-          ls -lh build/pkg/*.pkg 2>/dev/null || echo "No PKG files found"
-          echo ""
-          echo "SHA256 checksums:"
-          cat build/pkg/*.sha256 2>/dev/null || echo "No SHA256 files found"
-          echo ""
-          echo "🎉 Ready for distribution"
+          echo "✅ Verification complete"
