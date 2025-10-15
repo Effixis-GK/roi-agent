@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# ROI Agent - macOS PKG Installer Builder
-# Simplified version: Uses ROI_CONFIG environment variable for configuration
+# ROI Agent - macOS PKG Template Builder
+# Creates PKG without org-specific config (.env will be injected on download)
 
 set -e
 
-echo "📦 ROI Agent - PKG Installer Builder"
+echo "📦 ROI Agent - PKG Template Builder"
 echo "========================================"
 
 # 設定
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/pkg"
-VERSION="${1:-1.0.5}"
+VERSION="${1:-1.2.0}"
 ARCH="${2:-arm64}"
 
 if [ "$ARCH" = "arm64" ]; then
@@ -62,7 +62,17 @@ echo "  ✅ data-sender ($ARCH_LABEL)"
 
 cd "$PROJECT_ROOT"
 
-# 3. README
+# 3. .env.template（Dashboard APIが.envを生成する際の参照用）
+cat > "$RESOURCES_DIR/.env.template" << 'EOF'
+# ROI Agent Configuration
+# This file will be replaced with actual configuration on download
+ROI_AGENT_BASE_URL=https://roi-service-607617540267.asia-northeast1.run.app/api/v1/device
+ROI_AGENT_API_KEY=YOUR_API_KEY_HERE
+ROI_AGENT_INTERVAL_MINUTES=10
+EOF
+echo "  ✅ .env.template"
+
+# 4. README
 cat > "$INSTALL_DIR/README.txt" << EOF
 ROI Agent - macOS Background Service
 =====================================
@@ -70,27 +80,21 @@ ROI Agent - macOS Background Service
 Version: $VERSION
 Architecture: $ARCH_LABEL
 
-AUTOMATIC INSTALLATION:
-This PKG is pre-configured for your organization.
-Simply install and the agent will start automatically.
-
-NO CONFIGURATION NEEDED:
-- API key is embedded
-- Automatic startup configured
-- Background service enabled
-
-LOGS:
-  ~/.roiagent/logs/agent.log
+Pre-configured for your organization.
+No manual configuration required.
 
 UNINSTALLATION:
   sudo /Applications/ROI Agent/bin/uninstall.sh
+
+LOGS:
+  ~/.roiagent/logs/agent.log
 
 SUPPORT:
   https://roi-dashboard-607617540267.asia-northeast1.run.app
 EOF
 echo "  ✅ README.txt"
 
-# 4. LaunchAgent plist
+# 5. LaunchAgent plist
 cat > "$RESOURCES_DIR/com.roiagent.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -121,50 +125,14 @@ cat > "$RESOURCES_DIR/com.roiagent.plist" << 'EOF'
     
     <key>WorkingDirectory</key>
     <string>/Applications/ROI Agent</string>
-    
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    </dict>
 </dict>
 </plist>
 EOF
 echo "  ✅ com.roiagent.plist"
 
-# 5. 設定スクリプト（ダウンロード時にAPIキーを埋め込む用）
-cat > "$RESOURCES_DIR/configure.sh" << 'EOF'
-#!/bin/bash
-# Configuration script - called with API key and URL as arguments
-
-API_KEY="$1"
-BASE_URL="$2"
-
-if [ -z "$API_KEY" ] || [ -z "$BASE_URL" ]; then
-    echo "Error: Missing configuration parameters"
-    exit 1
-fi
-
-cat > "/Applications/ROI Agent/Resources/.env" << ENVEOF
-# ROI Agent Configuration
-# Auto-configured during download
-
-ROI_AGENT_BASE_URL=$BASE_URL
-ROI_AGENT_API_KEY=$API_KEY
-ROI_AGENT_INTERVAL_MINUTES=10
-ENVEOF
-
-chmod 600 "/Applications/ROI Agent/Resources/.env"
-echo "Configuration created successfully"
-EOF
-chmod +x "$RESOURCES_DIR/configure.sh"
-echo "  ✅ configure.sh"
-
 # 6. アンインストールスクリプト
 cat > "$BIN_DIR/uninstall.sh" << 'EOF'
 #!/bin/bash
-# ROI Agent - Uninstall Script
-
 echo "🗑️  Uninstalling ROI Agent..."
 
 CURRENT_USER=$(stat -f "%Su" /dev/console)
@@ -197,19 +165,12 @@ cat > "$INSTALL_DIR/version.json" << EOF
   "version": "$VERSION",
   "architecture": "$ARCH_LABEL",
   "build_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "format": "PKG",
-  "configuration": "dynamic",
-  "features": [
-    "Pre-configured with organization API key",
-    "Automatic startup on installation",
-    "Background service (LaunchAgent)",
-    "No manual configuration required"
-  ]
+  "format": "PKG_TEMPLATE"
 }
 EOF
 echo "  ✅ version.json"
 
-# 8. postinstallスクリプト
+# 8. postinstallスクリプト（.envは既に含まれている前提）
 cat > "$SCRIPTS_DIR/postinstall" << 'EOF'
 #!/bin/bash
 # ROI Agent - Post Installation Script
@@ -222,14 +183,11 @@ CURRENT_USER=$(stat -f "%Su" /dev/console)
 USER_HOME=$(eval echo ~$CURRENT_USER)
 USER_ID=$(id -u "$CURRENT_USER")
 
-echo "Installing for user: $CURRENT_USER (UID: $USER_ID)"
-
-# LaunchAgentsディレクトリを作成
+# LaunchAgent設定
 LAUNCH_AGENTS_DIR="$USER_HOME/Library/LaunchAgents"
 mkdir -p "$LAUNCH_AGENTS_DIR"
 chown "$CURRENT_USER:staff" "$LAUNCH_AGENTS_DIR"
 
-# plistファイルをコピー
 PLIST_SRC="/Applications/ROI Agent/Resources/com.roiagent.plist"
 PLIST_DST="$LAUNCH_AGENTS_DIR/com.roiagent.plist"
 
@@ -237,38 +195,34 @@ cp "$PLIST_SRC" "$PLIST_DST"
 chown "$CURRENT_USER:staff" "$PLIST_DST"
 chmod 644 "$PLIST_DST"
 
-echo "✅ LaunchAgent plist installed"
-
-# ログディレクトリを作成
+# ログディレクトリ作成
 LOG_DIR="$USER_HOME/.roiagent/logs"
 DATA_DIR="$USER_HOME/.roiagent/data"
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$DATA_DIR"
+mkdir -p "$LOG_DIR" "$DATA_DIR"
 chown -R "$CURRENT_USER:staff" "$USER_HOME/.roiagent"
 
-echo "✅ Log directory created"
-
-# ROI_CONFIG環境変数から設定を取得（Dashboard APIが設定）
-if [ ! -z "$ROI_CONFIG" ]; then
-    echo "Configuring from environment..."
-    echo "$ROI_CONFIG" > "/Applications/ROI Agent/Resources/.env"
-    chmod 600 "/Applications/ROI Agent/Resources/.env"
-    chown "$CURRENT_USER:staff" "/Applications/ROI Agent/Resources/.env"
-    echo "✅ Configuration applied"
-else
-    echo "⚠️  No configuration found. Please check Dashboard."
+# .envファイルの存在確認
+ENV_FILE="/Applications/ROI Agent/Resources/.env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "⚠️  Warning: Configuration file (.env) not found"
+    echo "This PKG should be downloaded from ROI Dashboard"
+    # テンプレートから作成（フォールバック）
+    cp "/Applications/ROI Agent/Resources/.env.template" "$ENV_FILE"
 fi
 
+chmod 600 "$ENV_FILE"
+chown "$CURRENT_USER:staff" "$ENV_FILE"
+
+echo "✅ Configuration verified"
+
 # LaunchAgentをロード
-echo "Loading LaunchAgent..."
 sudo -u "$CURRENT_USER" launchctl bootstrap "gui/$USER_ID" "$PLIST_DST" 2>/dev/null || true
 sudo -u "$CURRENT_USER" launchctl enable "gui/$USER_ID/com.roiagent" 2>/dev/null || true
 sudo -u "$CURRENT_USER" launchctl kickstart -k "gui/$USER_ID/com.roiagent" 2>/dev/null || true
 
 echo ""
 echo "✅ ROI Agent installed and started!"
-echo ""
 echo "📊 Check logs: tail -f $LOG_DIR/agent.log"
 echo ""
 
@@ -278,7 +232,7 @@ chmod +x "$SCRIPTS_DIR/postinstall"
 echo "  ✅ postinstall script"
 
 echo ""
-echo "📦 Building PKG installer..."
+echo "📦 Building PKG template..."
 
 PKG_ID="com.roiagent.pkg"
 PKG_VERSION="$VERSION"
@@ -296,7 +250,7 @@ pkgbuild \
 
 if [ $? -eq 0 ]; then
     echo ""
-    echo "✅ PKG created successfully!"
+    echo "✅ PKG template created successfully!"
     echo ""
     echo "📊 Package Information:"
     echo "   File: $PKG_NAME"

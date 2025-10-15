@@ -80,91 +80,17 @@ jobs:
           echo "✅ All binaries built"
           ls -lh "$BUILD_DIR"
       
-      - name: Create resources
+      - name: Create PKG templates
         run: |
-          RESOURCES_DIR="build/resources"
-          mkdir -p "$RESOURCES_DIR"
+          VERSION="${{ steps.version.outputs.version }}"
           
-          # LaunchAgent plist
-          cat > "$RESOURCES_DIR/com.roiagent.plist" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>Label</key>
-              <string>com.roiagent</string>
-              <key>ProgramArguments</key>
-              <array>
-                  <string>/Applications/ROI Agent/bin/roi-agent</string>
-              </array>
-              <key>RunAtLoad</key>
-              <true/>
-              <key>KeepAlive</key>
-              <dict>
-                  <key>SuccessfulExit</key>
-                  <false/>
-              </dict>
-              <key>StandardOutPath</key>
-              <string>/tmp/roiagent.stdout</string>
-              <key>StandardErrorPath</key>
-              <string>/tmp/roiagent.stderr</string>
-              <key>WorkingDirectory</key>
-              <string>/Applications/ROI Agent</string>
-          </dict>
-          </plist>
-          EOF
+          # ARM64 PKG
+          ./scripts/build_pkg.sh $VERSION arm64
           
-          # README
-          cat > "$RESOURCES_DIR/README.txt" << 'EOF'
-          ROI Agent - macOS Background Service
-          =====================================
+          # x64 PKG
+          ./scripts/build_pkg.sh $VERSION x64
           
-          Pre-configured for your organization.
-          Simply install and the agent starts automatically.
-          
-          NO CONFIGURATION NEEDED
-          EOF
-          
-          # postinstall script template
-          cat > "$RESOURCES_DIR/postinstall" << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          CURRENT_USER=$(stat -f "%Su" /dev/console)
-          USER_HOME=$(eval echo ~$CURRENT_USER)
-          USER_ID=$(id -u "$CURRENT_USER")
-          
-          # Setup LaunchAgent
-          LAUNCH_AGENTS_DIR="$USER_HOME/Library/LaunchAgents"
-          mkdir -p "$LAUNCH_AGENTS_DIR"
-          chown "$CURRENT_USER:staff" "$LAUNCH_AGENTS_DIR"
-          
-          PLIST_SRC="/Applications/ROI Agent/Resources/com.roiagent.plist"
-          PLIST_DST="$LAUNCH_AGENTS_DIR/com.roiagent.plist"
-          
-          cp "$PLIST_SRC" "$PLIST_DST"
-          chown "$CURRENT_USER:staff" "$PLIST_DST"
-          chmod 644 "$PLIST_DST"
-          
-          # Create log directories
-          LOG_DIR="$USER_HOME/.roiagent/logs"
-          DATA_DIR="$USER_HOME/.roiagent/data"
-          
-          mkdir -p "$LOG_DIR" "$DATA_DIR"
-          chown -R "$CURRENT_USER:staff" "$USER_HOME/.roiagent"
-          
-          # Load LaunchAgent
-          sudo -u "$CURRENT_USER" launchctl bootstrap "gui/$USER_ID" "$PLIST_DST" 2>/dev/null || true
-          sudo -u "$CURRENT_USER" launchctl enable "gui/$USER_ID/com.roiagent" 2>/dev/null || true
-          sudo -u "$CURRENT_USER" launchctl kickstart -k "gui/$USER_ID/com.roiagent" 2>/dev/null || true
-          
-          echo "✅ ROI Agent installed and started!"
-          exit 0
-          EOF
-          
-          chmod +x "$RESOURCES_DIR/postinstall"
-          
-          echo "✅ Resources created"
+          echo "✅ PKG templates created"
       
       - name: Create version info
         run: |
@@ -174,8 +100,7 @@ jobs:
           {
             "version": "${VERSION}",
             "build_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "format": "binaries",
-            "note": "Binaries are packaged dynamically on download"
+            "format": "pkg_template"
           }
           EOF
       
@@ -198,11 +123,13 @@ jobs:
           # Clean old files
           gsutil -m rm -rf ${BUCKET}/latest/ 2>/dev/null || true
           
-          # Upload binaries
-          gsutil cp build/binaries/* ${BUCKET}/latest/macos/binaries/
+          # Upload PKG templates
+          gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg ${BUCKET}/latest/macos/templates/
+          gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg ${BUCKET}/latest/macos/templates/
           
-          # Upload resources
-          gsutil cp -r build/resources ${BUCKET}/latest/macos/
+          # Upload SHA256
+          gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 ${BUCKET}/latest/macos/templates/
+          gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 ${BUCKET}/latest/macos/templates/
           
           # Upload version info
           gsutil cp build/version.json ${BUCKET}/latest/
@@ -213,7 +140,6 @@ jobs:
         run: |
           BUCKET="gs://roi-agent-releases"
           echo "📁 Uploaded files:"
-          gsutil ls -lh "${BUCKET}/latest/macos/binaries/"
-          gsutil ls -lh "${BUCKET}/latest/macos/resources/"
+          gsutil ls -lh "${BUCKET}/latest/macos/templates/"
           echo ""
           echo "✅ Verification complete"
