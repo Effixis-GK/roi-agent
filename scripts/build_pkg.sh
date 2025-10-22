@@ -41,12 +41,10 @@ mkdir -p "$SCRIPTS_DIR"
 INSTALL_DIR="$PAYLOAD_DIR/Applications/ROI Agent"
 RESOURCES_DIR="$INSTALL_DIR/Resources"
 BIN_DIR="$INSTALL_DIR/bin"
-DAEMON_DIR="$PAYLOAD_DIR/Library/LaunchDaemons"
 
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$RESOURCES_DIR"
 mkdir -p "$BIN_DIR"
-mkdir -p "$DAEMON_DIR"
 
 echo "🔨 Building binaries..."
 
@@ -97,8 +95,8 @@ SUPPORT:
 EOF
 echo "  ✅ README.txt"
 
-# 5. LaunchDaemon plist (rootで実行)
-cat > "$DAEMON_DIR/com.roiagent.daemon.plist" << 'EOF'
+# 5. LaunchDaemon plist (Resourcesに配置してpostinstallでコピー)
+cat > "$RESOURCES_DIR/com.roiagent.daemon.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -219,15 +217,54 @@ chmod 600 "$ENV_FILE"
 
 echo "✅ Configuration verified"
 
-# LaunchDaemonをロード（rootで実行）
-launchctl bootstrap system /Library/LaunchDaemons/com.roiagent.daemon.plist 2>/dev/null || true
+# LaunchDaemonのplistファイルをコピー
+SOURCE_PLIST="/Applications/ROI Agent/Resources/com.roiagent.daemon.plist"
+PLIST_FILE="/Library/LaunchDaemons/com.roiagent.daemon.plist"
+
+if [ ! -f "$SOURCE_PLIST" ]; then
+    echo "❌ Error: Source plist not found at $SOURCE_PLIST"
+    echo "PKG installation may have failed"
+    exit 1
+fi
+
+echo "✅ Source plist found, copying to LaunchDaemons..."
+
+# plistをコピー
+cp "$SOURCE_PLIST" "$PLIST_FILE"
+
+# plistファイルのパーミッション設定
+chown root:wheel "$PLIST_FILE"
+chmod 644 "$PLIST_FILE"
+
+echo "✅ LaunchDaemon plist installed and configured"
+
+# 既存のLaunchDaemonを停止（エラーを無視）
+launchctl bootout system/com.roiagent.daemon 2>/dev/null || true
+
+# LaunchDaemonをロード（macOS Big Sur以降対応）
+if launchctl bootstrap system "$PLIST_FILE" 2>/dev/null; then
+    echo "✅ LaunchDaemon loaded (bootstrap)"
+elif launchctl load "$PLIST_FILE" 2>/dev/null; then
+    echo "✅ LaunchDaemon loaded (legacy load)"
+else
+    echo "⚠️  Warning: Could not load LaunchDaemon, trying manual start..."
+    launchctl start com.roiagent.daemon 2>/dev/null || true
+fi
+
+# LaunchDaemonを有効化
 launchctl enable system/com.roiagent.daemon 2>/dev/null || true
+
+# サービスを起動
 launchctl kickstart -k system/com.roiagent.daemon 2>/dev/null || true
 
 echo ""
 echo "✅ ROI Agent installed and started!"
 echo "📊 Check logs: tail -f /var/log/roiagent.log"
 echo "🔒 Running with root privileges for DNS monitoring"
+echo ""
+echo "🔍 Verify installation:"
+echo "   sudo launchctl list | grep roiagent"
+echo "   ps aux | grep roi-agent"
 echo ""
 
 exit 0
