@@ -43,10 +43,10 @@ type AppUsage struct {
 
 // CombinedData represents combined application and network usage data
 type CombinedData struct {
-	Date         string                        `json:"date"`
-	Apps         map[string]*AppUsage          `json:"apps"`
-	Network      map[string]*NetworkConnection `json:"network"`
-	AppTotal     struct {
+	Date     string                        `json:"date"`
+	Apps     map[string]*AppUsage          `json:"apps"`
+	Network  map[string]*NetworkConnection `json:"network"`
+	AppTotal struct {
 		ForegroundTime int64 `json:"foreground_time"`
 		BackgroundTime int64 `json:"background_time"`
 		FocusTime      int64 `json:"focus_time"`
@@ -64,7 +64,7 @@ func getInstallDir() string {
 	if _, err := os.Stat("/Applications/ROI Agent"); err == nil {
 		return "/Applications/ROI Agent"
 	}
-	
+
 	// Development mode: use current directory
 	wd, _ := os.Getwd()
 	return wd
@@ -81,23 +81,23 @@ func loadEnvFile(filename string) error {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		
+
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
-			
+
 			if os.Getenv(key) == "" {
 				os.Setenv(key, value)
 				log.Printf("Loaded from .env: %s=%s", key, value)
 			}
 		}
 	}
-	
+
 	return scanner.Err()
 }
 
@@ -132,7 +132,7 @@ func NewAgent() *Agent {
 		filepath.Join(installDir, ".env"),
 		filepath.Join(installDir, "data-sender", ".env"),
 	}
-	
+
 	envLoaded := false
 	for _, envPath := range envPaths {
 		if _, err := os.Stat(envPath); err == nil {
@@ -145,7 +145,7 @@ func NewAgent() *Agent {
 			}
 		}
 	}
-	
+
 	if !envLoaded {
 		log.Printf("Warning: No .env file found")
 	}
@@ -264,8 +264,22 @@ func (a *Agent) startTcpdumpDNSMonitoring() error {
 	}
 
 	a.tcpdumpCtx, a.tcpdumpCancel = context.WithCancel(context.Background())
-	a.tcpdumpCmd = exec.CommandContext(a.tcpdumpCtx, "sudo", "tcpdump", "-i", "any", "port", "53", "-l", "-n", "-t")
-	
+
+	isRoot := os.Geteuid() == 0
+
+	var cmd *exec.Cmd
+	if isRoot {
+		// Running as root (LaunchDaemon) - no sudo needed
+		log.Println("Running as root - starting tcpdump directly")
+		cmd = exec.CommandContext(a.tcpdumpCtx, "tcpdump", "-i", "any", "port", "53", "-l", "-n", "-t")
+	} else {
+		// Running as normal user - use sudo
+		log.Println("Running as user - starting tcpdump with sudo")
+		cmd = exec.CommandContext(a.tcpdumpCtx, "sudo", "tcpdump", "-i", "any", "port", "53", "-l", "-n", "-t")
+	}
+
+	a.tcpdumpCmd = cmd
+
 	stdout, err := a.tcpdumpCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %v", err)
@@ -335,12 +349,12 @@ func (a *Agent) extractFQDNAndPortFromDNSQuery(line string) (string, int) {
 	if !strings.Contains(line, "?") || strings.Contains(line, "CNAME?") {
 		return "", 0
 	}
-	
+
 	patterns := []string{
 		` A\? ([a-zA-Z0-9.-]+)\.`,
 		` AAAA\? ([a-zA-Z0-9.-]+)\.`,
 	}
-	
+
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(line)
@@ -351,21 +365,21 @@ func (a *Agent) extractFQDNAndPortFromDNSQuery(line string) (string, int) {
 			}
 		}
 	}
-	
+
 	return "", 0
 }
 
 func (a *Agent) inferPortFromFQDN(fqdn string) int {
 	fqdnLower := strings.ToLower(fqdn)
-	
+
 	if strings.Contains(fqdnLower, "http.") || strings.Contains(fqdnLower, "insecure.") {
 		return 80
 	}
-	
+
 	if strings.Contains(fqdnLower, "localhost") || strings.Contains(fqdnLower, "local") {
 		return 80
 	}
-	
+
 	return 443
 }
 
@@ -373,14 +387,14 @@ func (a *Agent) isCNAMEPattern(domain string) bool {
 	cnamePatterns := []string{
 		".akamai.net", ".cloudfront.net", ".fastly.com", ".cdn",
 	}
-	
+
 	domainLower := strings.ToLower(domain)
 	for _, pattern := range cnamePatterns {
 		if strings.Contains(domainLower, pattern) {
 			return true
 		}
 	}
-	
+
 	return strings.Count(domain, ".") > 3
 }
 
@@ -388,20 +402,20 @@ func (a *Agent) isValidFQDN(domain string) bool {
 	if len(domain) < 4 || len(domain) > 253 || !strings.Contains(domain, ".") {
 		return false
 	}
-	
+
 	excludePatterns := []string{
 		"localhost", ".local", "apple.com", "icloud.com",
 		"doubleclick.", "analytics.", "tracking.", "cdn.",
 		"ads.", "metrics.", "telemetry.",
 	}
-	
+
 	domainLower := strings.ToLower(domain)
 	for _, exclude := range excludePatterns {
 		if strings.Contains(domainLower, exclude) {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -419,7 +433,7 @@ func (a *Agent) updateNetworkUsage() {
 		if currentTime.Sub(conn.LastSeen) <= 2*time.Minute {
 			activeConnections[key] = conn
 			domainSet[conn.Domain] = true
-			
+
 			if currentTime.Sub(conn.LastSeen) > 30*time.Second {
 				conn.IsActive = false
 			} else {
@@ -462,13 +476,13 @@ func (a *Agent) updateAppUsage() {
 
 	for appName := range runningApps {
 		isFocused := (appName == frontmostApp)
-		
+
 		if appData, exists := a.combinedData.Apps[appName]; exists {
 			appData.IsActive = true
 			appData.IsFocused = isFocused
 			appData.LastSeen = currentTime
 			appData.ForegroundTime += interval
-			
+
 			if isFocused {
 				appData.FocusTime += interval
 			}
@@ -500,24 +514,24 @@ func (a *Agent) triggerDataTransmission() {
 	if time.Since(a.lastTransmission) >= a.transmissionInterval {
 		log.Println("Triggering data transmission...")
 		a.saveCombinedData()
-		
+
 		go func() {
 			if _, err := os.Stat(a.dataSenderPath); err != nil {
 				log.Printf("Data sender not found: %s", a.dataSenderPath)
 				return
 			}
-			
+
 			cmd := exec.Command(a.dataSenderPath, "process")
 			cmd.Dir = filepath.Dir(a.dataSenderPath)
 			cmd.Env = os.Environ()
-			
+
 			if output, err := cmd.CombinedOutput(); err != nil {
 				log.Printf("Data transmission error: %v, output: %s", err, string(output))
 			} else {
 				log.Printf("Data transmission completed: %s", string(output))
 			}
 		}()
-		
+
 		a.lastTransmission = time.Now()
 	}
 }
