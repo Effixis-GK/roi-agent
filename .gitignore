@@ -9,6 +9,11 @@ debug/debug-tool
 *.dylib
 *.test
 
+# Build artifacts
+data-sender/vendor/
+agent/vendor/
+debug/vendor/
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -150,3 +155,7 @@ config/production.yaml
 # Backup files
 *.bak
 *.backup
+
+# User data directories (ROI Agent runtime data)
+.roiagent/
+transmission/
