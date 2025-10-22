@@ -163,9 +163,10 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 		Network: make(map[string]*NetworkConn),
 	}
 
-	// Filter apps based on LastSeen timestamp
+	// Include ALL apps that have any usage time during this interval
+	// This ensures we send all apps used during the 10-minute window
 	for appName, appInfo := range data.Apps {
-		if appInfo.LastSeen.After(startTime) && appInfo.LastSeen.Before(endTime) {
+		if appInfo.FocusTime > 0 || appInfo.ForegroundTime > 0 {
 			filtered.Apps[appName] = appInfo
 		}
 	}
@@ -205,9 +206,15 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 			continue
 		}
 
+		// Determine focused_app based on actual focus time
+		focusedApp := ""
+		if appInfo.FocusTime > 0 {
+			focusedApp = appName
+		}
+
 		appData := AppData{
 			ActiveApp:             appName,
-			FocusedApp:            appName, // Each app records its own state
+			FocusedApp:            focusedApp, // Only set if actually focused
 			FocusTimeSeconds:      int(appInfo.FocusTime),      // フォーカス時間（操作時間）
 			ForegroundTimeSeconds: int(appInfo.ForegroundTime), // 起動時間（バックグラウンド含む）
 			Timestamp:             timestamp,
@@ -215,7 +222,11 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 		
 		payload.Apps = append(payload.Apps, appData)
 		
-		log.Printf("  Including app: %s (focus: %ds, foreground: %ds)", appName, appInfo.FocusTime, appInfo.ForegroundTime)
+		if focusedApp != "" {
+			log.Printf("  Including app: %s (focus: %ds, foreground: %ds)", appName, appInfo.FocusTime, appInfo.ForegroundTime)
+		} else {
+			log.Printf("  Including app: %s (foreground only: %ds, no focus)", appName, appInfo.ForegroundTime)
+		}
 	}
 
 	// Process network data - count access frequency

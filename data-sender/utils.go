@@ -30,10 +30,11 @@ func (ds *DataSender) TestConnection() {
 	
 	// Create minimal valid app data
 	testAppData := AppData{
-		ActiveApp:  "TestApp",
-		FocusedApp: "TestApp", 
-		FocusTime:  60, // 60 seconds for test
-		Timestamp:  testTimestamp,
+		ActiveApp:             "TestApp",
+		FocusedApp:            "TestApp", 
+		FocusTimeSeconds:      60, // 60 seconds for test
+		ForegroundTimeSeconds: 60, // 60 seconds for test
+		Timestamp:             testTimestamp,
 	}
 	
 	// Create minimal valid network data
