@@ -87,13 +87,13 @@ jobs:
           echo "📦 Building PKG files..."
           
           # Make build script executable
-          chmod +x scripts/build_pkg_v2.sh
+          chmod +x scripts/build_pkg.sh
           
           # Build ARM64 PKG
-          ./scripts/build_pkg_v2.sh $VERSION arm64
+          ./scripts/build_pkg.sh $VERSION arm64
           
           # Build x64 PKG
-          ./scripts/build_pkg_v2.sh $VERSION x64
+          ./scripts/build_pkg.sh $VERSION x64
           
           echo "✅ PKG files created"
           ls -lh build/pkg/
