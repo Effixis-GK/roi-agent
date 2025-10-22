@@ -80,7 +80,7 @@ jobs:
           echo "✅ All binaries built"
           ls -lh "$BUILD_DIR"
       
-      - name: Build PKG files (Common, no .env)
+      - name: Build PKG files (Latest, no version suffix)
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           
@@ -101,14 +101,17 @@ jobs:
       - name: Create version info
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_SHA=$(git rev-parse --short HEAD)
           
           cat > build/version.json << EOF
           {
             "version": "${VERSION}",
-            "build_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "format": "COMMON_PKG",
+            "build_date": "${BUILD_DATE}",
+            "commit": "${COMMIT_SHA}",
+            "format": "LATEST_PKG",
             "requires_configuration": true,
-            "distribution_method": "signed_url"
+            "distribution_method": "authenticated_api"
           }
           EOF
           
@@ -123,28 +126,29 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      - name: Upload to Cloud Storage
+      - name: Upload to Cloud Storage (Latest only)
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           BUCKET="gs://roi-agent-releases"
           
-          echo "☁️  Uploading to Cloud Storage..."
+          echo "☁️  Uploading to Cloud Storage (Latest only)..."
           
-          # Upload PKG files to latest/macos/ (for signed URL distribution)
-          echo "Uploading PKG files..."
+          # Upload PKG files without version suffix
+          echo "Uploading ARM64 PKG..."
           gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64-${VERSION}.pkg
+            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
           
+          echo "Uploading x64 PKG..."
           gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64-${VERSION}.pkg
+            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
           
-          # Upload SHA256 checksums
+          # Upload SHA256 checksums without version suffix
           echo "Uploading checksums..."
           gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256
+            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
           
           gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256
+            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
           
           # Upload version info
           echo "Uploading version info..."
@@ -158,6 +162,13 @@ jobs:
             ${BUCKET}/latest/macos/*.sha256
           
           gsutil setmeta -h "Content-Type:application/json" \
+            ${BUCKET}/latest/version.json
+          
+          # Set cache control (no caching for latest)
+          gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
+            ${BUCKET}/latest/macos/*.pkg
+          
+          gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
             ${BUCKET}/latest/version.json
           
           echo "✅ Upload complete"
@@ -182,16 +193,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts (Latest)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ROI-Agent-macOS-arm64-${VERSION}.pkg\` (Apple Silicon)" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ROI-Agent-macOS-x64-${VERSION}.pkg\` (Intel)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ROI-Agent-macOS-arm64.pkg\` (Apple Silicon)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ROI-Agent-macOS-x64.pkg\` (Intel)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ☁️ Cloud Storage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Files uploaded to: \`gs://roi-agent-releases/latest/macos/\`" >> $GITHUB_STEP_SUMMARY
+          echo "Files uploaded to: \`gs://roi-agent-releases/latest/\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔐 Distribution" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "PKG files will be distributed via **signed URLs** (2-hour expiration)" >> $GITHUB_STEP_SUMMARY
-          echo "No public access configuration required!" >> $GITHUB_STEP_SUMMARY
+          echo "PKG files are distributed via **Dashboard API** with API key authentication" >> $GITHUB_STEP_SUMMARY
+          echo "Always serves the **latest version** without version numbers in filenames" >> $GITHUB_STEP_SUMMARY
