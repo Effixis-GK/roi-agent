@@ -198,28 +198,24 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 		Networks:     make([]NetworkData, 0),
 	}
 
-	// Process application data
-	var focusedApp, activeApp string
-	var maxFocusTime int64
-
+	// Process application data - send ALL apps with their individual focus times
 	for appName, appInfo := range data.Apps {
-		if appInfo.IsActive {
-			activeApp = appName
+		// Skip apps with no activity
+		if !appInfo.IsActive && !appInfo.IsFocused {
+			continue
 		}
-		if appInfo.IsFocused && appInfo.FocusTime > maxFocusTime {
-			focusedApp = appName
-			maxFocusTime = appInfo.FocusTime
-		}
-	}
 
-	if activeApp != "" || focusedApp != "" {
 		appData := AppData{
-			ActiveApp:  activeApp,
-			FocusedApp: focusedApp,
-			FocusTime:  int(maxFocusTime), // Convert int64 to int
-			Timestamp:  timestamp,
+			ActiveApp:             appName,
+			FocusedApp:            appName, // Each app records its own state
+			FocusTimeSeconds:      int(appInfo.FocusTime),      // フォーカス時間（操作時間）
+			ForegroundTimeSeconds: int(appInfo.ForegroundTime), // 起動時間（バックグラウンド含む）
+			Timestamp:             timestamp,
 		}
+		
 		payload.Apps = append(payload.Apps, appData)
+		
+		log.Printf("  Including app: %s (focus: %ds, foreground: %ds)", appName, appInfo.FocusTime, appInfo.ForegroundTime)
 	}
 
 	// Process network data - count access frequency
@@ -254,6 +250,8 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 	payload.Metadata.AgentVersion = "1.0.0"
 	payload.Metadata.TotalApps = len(data.Apps)
 	payload.Metadata.TotalDomains = len(domainAccess)
+
+	log.Printf("Created payload with %d apps and %d network connections", len(payload.Apps), len(payload.Networks))
 
 	return payload
 }
