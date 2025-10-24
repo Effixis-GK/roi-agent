@@ -91,7 +91,7 @@ func (ds *DataSender) ProcessDataInterval(startTime, endTime time.Time) error {
 
 	for retryCount <= maxRetries {
 		// Load data for the specific interval
-		data, err := ds.loadDataForInterval(startTime, endTime)
+		data, dataFilePath, err := ds.loadDataForInterval(startTime, endTime)
 		if err != nil {
 			log.Printf("Error loading data for interval: %v", err)
 			ds.logTransmissionResult(startTime, endTime, false, err, retryCount, 0)
@@ -114,6 +114,14 @@ func (ds *DataSender) ProcessDataInterval(startTime, endTime time.Time) error {
 			log.Printf("Successfully transmitted interval %s-%s (attempt %d)",
 				startTime.Format("15:04"), endTime.Format("15:04"), retryCount+1)
 			ds.logTransmissionResult(startTime, endTime, true, nil, retryCount, payloadSize)
+			
+			// 🔧 送信成功後、combined_*.jsonファイルの累積データをリセット
+			if err := ds.resetCombinedDataAfterTransmission(dataFilePath); err != nil {
+				log.Printf("Warning: Failed to reset combined data: %v", err)
+			} else {
+				log.Printf("Successfully reset combined data after transmission")
+			}
+			
 			return nil
 		}
 
@@ -133,7 +141,7 @@ func (ds *DataSender) ProcessDataInterval(startTime, endTime time.Time) error {
 }
 
 // loadDataForInterval loads and filters data for a specific time interval
-func (ds *DataSender) loadDataForInterval(startTime, endTime time.Time) (*CombinedData, error) {
+func (ds *DataSender) loadDataForInterval(startTime, endTime time.Time) (*CombinedData, string, error) {
 	// Load today's data file
 	today := startTime.Format("2006-01-02")
 	dataFile := filepath.Join(ds.dataDir, fmt.Sprintf("combined_%s.json", today))
@@ -141,18 +149,18 @@ func (ds *DataSender) loadDataForInterval(startTime, endTime time.Time) (*Combin
 	data, err := ioutil.ReadFile(dataFile)
 	if err != nil {
 		log.Printf("Error reading data file %s: %v", dataFile, err)
-		return nil, err
+		return nil, "", err
 	}
 
 	var combinedData CombinedData
 	if err := json.Unmarshal(data, &combinedData); err != nil {
 		log.Printf("Error parsing data file: %v", err)
-		return nil, err
+		return nil, "", err
 	}
 
 	// Filter the data for the specified interval
 	filtered := ds.filterDataForInterval(&combinedData, startTime, endTime)
-	return filtered, nil
+	return filtered, dataFile, nil
 }
 
 // filterDataForInterval filters data to only include activity within the specified interval
@@ -163,11 +171,9 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 		Network: make(map[string]*NetworkConn),
 	}
 
-	// Include ALL apps that have any usage time during this interval
-	// This ensures we send all apps used during the 10-minute window
+	// 累積データをそのまま使用（10分間の累積データとして扱う）
 	for appName, appInfo := range data.Apps {
 		if appInfo.FocusTime > 0 || appInfo.ForegroundTime > 0 {
-			// 🔧 修正：値のコピーを作成する
 			appCopy := &AppUsage{
 				Name:           appInfo.Name,
 				ForegroundTime: appInfo.ForegroundTime,
@@ -180,10 +186,9 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 		}
 	}
 
-	// Filter network connections based on LastSeen timestamp
+	// ネットワークデータも同様に処理
 	for connKey, connInfo := range data.Network {
-		if connInfo.LastSeen.After(startTime) && connInfo.LastSeen.Before(endTime) {
-			// 🔧 修正：ネットワークも値のコピーを作成
+		if connInfo.IsActive {
 			connCopy := &NetworkConn{
 				Domain:   connInfo.Domain,
 				Port:     connInfo.Port,
@@ -201,6 +206,50 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 		len(filtered.Apps), len(filtered.Network))
 
 	return filtered
+}
+
+// resetCombinedDataAfterTransmission resets the combined data file after successful transmission
+func (ds *DataSender) resetCombinedDataAfterTransmission(dataFilePath string) error {
+	// ファイルが存在しない場合はスキップ
+	if _, err := os.Stat(dataFilePath); os.IsNotExist(err) {
+		return nil
+	}
+
+	// ファイルを読み込む
+	data, err := ioutil.ReadFile(dataFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read data file: %v", err)
+	}
+
+	var combinedData CombinedData
+	if err := json.Unmarshal(data, &combinedData); err != nil {
+		return fmt.Errorf("failed to parse data file: %v", err)
+	}
+
+	// 累積データをリセット（空のマップで初期化）
+	combinedData.Apps = make(map[string]*AppUsage)
+	combinedData.Network = make(map[string]*NetworkConn)
+	
+	// AppTotalとNetworkTotalもリセット
+	combinedData.AppTotal.ForegroundTime = 0
+	combinedData.AppTotal.BackgroundTime = 0
+	combinedData.AppTotal.FocusTime = 0
+	combinedData.NetworkTotal.TotalDuration = 0
+	combinedData.NetworkTotal.UniqueConnections = 0
+	combinedData.NetworkTotal.UniqueDomains = 0
+
+	// リセット後のデータを保存
+	resetData, err := json.MarshalIndent(combinedData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal reset data: %v", err)
+	}
+
+	if err := ioutil.WriteFile(dataFilePath, resetData, 0644); err != nil {
+		return fmt.Errorf("failed to write reset data: %v", err)
+	}
+
+	log.Printf("Reset combined data file: %s", dataFilePath)
+	return nil
 }
 
 // createIntervalTransmissionPayload creates a payload for a specific interval

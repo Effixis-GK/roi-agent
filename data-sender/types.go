@@ -55,6 +55,16 @@ type CombinedData struct {
 	Date    string                     `json:"date"`
 	Apps    map[string]*AppUsage       `json:"apps"`
 	Network map[string]*NetworkConn    `json:"network"`
+	AppTotal struct {
+		ForegroundTime int64 `json:"foreground_time"`
+		BackgroundTime int64 `json:"background_time"`
+		FocusTime      int64 `json:"focus_time"`
+	} `json:"app_total"`
+	NetworkTotal struct {
+		TotalDuration     int64 `json:"total_duration"`
+		UniqueConnections int   `json:"unique_connections"`
+		UniqueDomains     int   `json:"unique_domains"`
+	} `json:"network_total"`
 }
 
 type AppUsage struct {
