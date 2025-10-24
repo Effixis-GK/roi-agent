@@ -13,13 +13,13 @@ import (
 
 // DataSender handles the transmission of monitoring data
 type DataSender struct {
-	config            Config
-	dataDir           string
-	transmissionDir   string
-	configPath        string
-	logPath           string
-	intervalMinutes   int
-	defaultInterval   int
+	config          Config
+	dataDir         string
+	transmissionDir string
+	configPath      string
+	logPath         string
+	intervalMinutes int
+	defaultInterval int
 }
 
 // NewDataSender creates a new data sender instance
@@ -81,7 +81,7 @@ func (ds *DataSender) ProcessDataInterval(startTime, endTime time.Time) error {
 
 	// Check if this interval was already transmitted
 	if ds.wasIntervalTransmitted(startTime, endTime) {
-		log.Printf("Interval %s-%s already transmitted, skipping", 
+		log.Printf("Interval %s-%s already transmitted, skipping",
 			startTime.Format("15:04"), endTime.Format("15:04"))
 		return nil
 	}
@@ -111,7 +111,7 @@ func (ds *DataSender) ProcessDataInterval(startTime, endTime time.Time) error {
 		payloadSize := len(payload.Apps) + len(payload.Networks)
 
 		if err == nil {
-			log.Printf("Successfully transmitted interval %s-%s (attempt %d)", 
+			log.Printf("Successfully transmitted interval %s-%s (attempt %d)",
 				startTime.Format("15:04"), endTime.Format("15:04"), retryCount+1)
 			ds.logTransmissionResult(startTime, endTime, true, nil, retryCount, payloadSize)
 			return nil
@@ -146,13 +146,13 @@ func (ds *DataSender) loadDataForInterval(startTime, endTime time.Time) (*Combin
 
 	var combinedData CombinedData
 	if err := json.Unmarshal(data, &combinedData); err != nil {
-		log.Printf("Error unmarshaling data: %v", err)
+		log.Printf("Error parsing data file: %v", err)
 		return nil, err
 	}
 
-	// Filter data for the specific interval
-	filteredData := ds.filterDataForInterval(&combinedData, startTime, endTime)
-	return filteredData, nil
+	// Filter the data for the specified interval
+	filtered := ds.filterDataForInterval(&combinedData, startTime, endTime)
+	return filtered, nil
 }
 
 // filterDataForInterval filters data to only include activity within the specified interval
@@ -167,19 +167,37 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 	// This ensures we send all apps used during the 10-minute window
 	for appName, appInfo := range data.Apps {
 		if appInfo.FocusTime > 0 || appInfo.ForegroundTime > 0 {
-			filtered.Apps[appName] = appInfo
+			// 🔧 修正：値のコピーを作成する
+			appCopy := &AppUsage{
+				Name:           appInfo.Name,
+				ForegroundTime: appInfo.ForegroundTime,
+				FocusTime:      appInfo.FocusTime,
+				LastSeen:       appInfo.LastSeen,
+				IsActive:       appInfo.IsActive,
+				IsFocused:      appInfo.IsFocused,
+			}
+			filtered.Apps[appName] = appCopy
 		}
 	}
 
 	// Filter network connections based on LastSeen timestamp
 	for connKey, connInfo := range data.Network {
 		if connInfo.LastSeen.After(startTime) && connInfo.LastSeen.Before(endTime) {
-			filtered.Network[connKey] = connInfo
+			// 🔧 修正：ネットワークも値のコピーを作成
+			connCopy := &NetworkConn{
+				Domain:   connInfo.Domain,
+				Port:     connInfo.Port,
+				Protocol: connInfo.Protocol,
+				Duration: connInfo.Duration,
+				LastSeen: connInfo.LastSeen,
+				IsActive: connInfo.IsActive,
+			}
+			filtered.Network[connKey] = connCopy
 		}
 	}
 
 	log.Printf("Filtered data for interval %s-%s: %d apps, %d network connections",
-		startTime.Format("15:04"), endTime.Format("15:04"), 
+		startTime.Format("15:04"), endTime.Format("15:04"),
 		len(filtered.Apps), len(filtered.Network))
 
 	return filtered
@@ -214,14 +232,14 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 
 		appData := AppData{
 			ActiveApp:             appName,
-			FocusedApp:            focusedApp, // Only set if actually focused
+			FocusedApp:            focusedApp,                  // Only set if actually focused
 			FocusTimeSeconds:      int(appInfo.FocusTime),      // フォーカス時間（操作時間）
 			ForegroundTimeSeconds: int(appInfo.ForegroundTime), // 起動時間（バックグラウンド含む）
 			Timestamp:             timestamp,
 		}
-		
+
 		payload.Apps = append(payload.Apps, appData)
-		
+
 		if focusedApp != "" {
 			log.Printf("  Including app: %s (focus: %ds, foreground: %ds)", appName, appInfo.FocusTime, appInfo.ForegroundTime)
 		} else {
