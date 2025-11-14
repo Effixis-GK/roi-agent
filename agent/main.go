@@ -41,12 +41,43 @@ type AppUsage struct {
 	IsFocused      bool      `json:"is_focused"`
 }
 
+// SystemMetrics represents system-wide performance metrics
+type SystemMetrics struct {
+	Timestamp          time.Time `json:"timestamp"`
+	CPUPercent         float64   `json:"cpu_percent"`
+	MemoryUsedMB       int64     `json:"memory_used_mb"`
+	MemoryTotalMB      int64     `json:"memory_total_mb"`
+	MemoryPercent      float64   `json:"memory_percent"`
+	DiskReadMBps       float64   `json:"disk_read_mbps"`
+	DiskWriteMBps      float64   `json:"disk_write_mbps"`
+	DiskReadOps        int64     `json:"disk_read_ops"`
+	DiskWriteOps       int64     `json:"disk_write_ops"`
+	BatteryLevel       int       `json:"battery_level,omitempty"`       // 0-100
+	BatteryCharging    bool      `json:"battery_charging,omitempty"`
+	BatteryTimeRemaining int    `json:"battery_time_remaining,omitempty"` // minutes
+	IdleTimeSec        int64     `json:"idle_time_sec"`
+	ScreenLocked       bool      `json:"screen_locked"`
+	ProcessCount       int       `json:"process_count"`
+	SystemUptimeSec     int64     `json:"system_uptime_sec"`
+}
+
+// ProcessMetrics represents per-process CPU and memory metrics
+type ProcessMetrics struct {
+	PID        int       `json:"pid"`
+	Name       string    `json:"name"`
+	CPUPercent float64   `json:"cpu_percent"`
+	MemoryMB   int64     `json:"memory_mb"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
 // CombinedData represents combined application and network usage data
 type CombinedData struct {
-	Date     string                        `json:"date"`
-	Apps     map[string]*AppUsage          `json:"apps"`
-	Network  map[string]*NetworkConnection `json:"network"`
-	AppTotal struct {
+	Date           string                        `json:"date"`
+	Apps           map[string]*AppUsage          `json:"apps"`
+	Network        map[string]*NetworkConnection `json:"network"`
+	SystemMetrics  []*SystemMetrics              `json:"system_metrics"`
+	ProcessMetrics []*ProcessMetrics             `json:"process_metrics"`
+	AppTotal       struct {
 		ForegroundTime int64 `json:"foreground_time"`
 		BackgroundTime int64 `json:"background_time"`
 		FocusTime      int64 `json:"focus_time"`
@@ -182,9 +213,11 @@ func NewAgent() *Agent {
 func (a *Agent) initCombinedData() {
 	today := time.Now().Format("2006-01-02")
 	a.combinedData = &CombinedData{
-		Date:    today,
-		Apps:    make(map[string]*AppUsage),
-		Network: make(map[string]*NetworkConnection),
+		Date:           today,
+		Apps:           make(map[string]*AppUsage),
+		Network:        make(map[string]*NetworkConnection),
+		SystemMetrics:  make([]*SystemMetrics, 0),
+		ProcessMetrics: make([]*ProcessMetrics, 0),
 	}
 	log.Printf("Initialized fresh agent data for %s", today)
 }
@@ -460,6 +493,399 @@ func (a *Agent) updateNetworkUsage() {
 	a.combinedData.NetworkTotal.UniqueDomains = len(domainSet)
 }
 
+// collectSystemMetrics collects system-wide performance metrics
+func (a *Agent) collectSystemMetrics() *SystemMetrics {
+	metrics := &SystemMetrics{
+		Timestamp: time.Now(),
+	}
+
+	// Get CPU usage
+	if cpuPercent, err := a.getCPUUsage(); err == nil {
+		metrics.CPUPercent = cpuPercent
+	}
+
+	// Get memory usage
+	if memUsed, memTotal, memPercent, err := a.getMemoryUsage(); err == nil {
+		metrics.MemoryUsedMB = memUsed
+		metrics.MemoryTotalMB = memTotal
+		metrics.MemoryPercent = memPercent
+	}
+
+	// Get disk I/O
+	if diskReadMBps, diskWriteMBps, diskReadOps, diskWriteOps, err := a.getDiskIO(); err == nil {
+		metrics.DiskReadMBps = diskReadMBps
+		metrics.DiskWriteMBps = diskWriteMBps
+		metrics.DiskReadOps = diskReadOps
+		metrics.DiskWriteOps = diskWriteOps
+	}
+
+	// Get battery status
+	if batteryLevel, batteryCharging, batteryTimeRemaining, err := a.getBatteryStatus(); err == nil {
+		metrics.BatteryLevel = batteryLevel
+		metrics.BatteryCharging = batteryCharging
+		metrics.BatteryTimeRemaining = batteryTimeRemaining
+	}
+
+	// Get idle time and screen lock status
+	if idleTimeSec, screenLocked, err := a.getSystemIdleTime(); err == nil {
+		metrics.IdleTimeSec = idleTimeSec
+		metrics.ScreenLocked = screenLocked
+	}
+
+	// Get process count
+	if processCount, err := a.getProcessCount(); err == nil {
+		metrics.ProcessCount = processCount
+	}
+
+	// Get system uptime
+	if uptimeSec, err := a.getSystemUptime(); err == nil {
+		metrics.SystemUptimeSec = uptimeSec
+	}
+
+	return metrics
+}
+
+// getCPUUsage gets system-wide CPU usage percentage
+func (a *Agent) getCPUUsage() (float64, error) {
+	cmd := exec.Command("top", "-l", "1", "-n", "0")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "CPU usage:") {
+			// Parse: "CPU usage: 5.23% user, 2.10% sys, 92.66% idle"
+			parts := strings.Fields(line)
+			for i, part := range parts {
+				if part == "idle" && i > 0 {
+					idleStr := strings.TrimSuffix(parts[i-1], "%")
+					if idle, err := strconv.ParseFloat(idleStr, 64); err == nil {
+						return 100.0 - idle, nil
+					}
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("could not parse CPU usage")
+}
+
+// getMemoryUsage gets system memory usage
+func (a *Agent) getMemoryUsage() (int64, int64, float64, error) {
+	// Get page size
+	cmd := exec.Command("sysctl", "-n", "hw.pagesize")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	pageSize, err := strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Get vm_stat
+	cmd = exec.Command("vm_stat")
+	output, err = cmd.Output()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	var freePages, inactivePages, speculativePages, wiredPages, activePages int64
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "Pages free:") {
+			fmt.Sscanf(line, "Pages free: %d", &freePages)
+		} else if strings.Contains(line, "Pages inactive:") {
+			fmt.Sscanf(line, "Pages inactive: %d", &inactivePages)
+		} else if strings.Contains(line, "Pages speculative:") {
+			fmt.Sscanf(line, "Pages speculative: %d", &speculativePages)
+		} else if strings.Contains(line, "Pages wired down:") {
+			fmt.Sscanf(line, "Pages wired down: %d", &wiredPages)
+		} else if strings.Contains(line, "Pages active:") {
+			fmt.Sscanf(line, "Pages active: %d", &activePages)
+		}
+	}
+
+	// Get total memory
+	cmd = exec.Command("sysctl", "-n", "hw.memsize")
+	output, err = cmd.Output()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	totalBytes, err := strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	totalMB := totalBytes / (1024 * 1024)
+	freeMB := (freePages + inactivePages + speculativePages) * pageSize / (1024 * 1024)
+	usedMB := totalMB - freeMB
+	usedPercent := float64(usedMB) / float64(totalMB) * 100.0
+
+	return usedMB, totalMB, usedPercent, nil
+}
+
+// getDiskIO gets disk I/O statistics
+func (a *Agent) getDiskIO() (float64, float64, int64, int64, error) {
+	// Use iostat to get disk I/O - format: iostat -d -w 1 -c 2
+	// This gives us two samples, we'll use the second one for current activity
+	cmd := exec.Command("iostat", "-d", "-w", "1", "-c", "2")
+	output, err := cmd.Output()
+	if err != nil {
+		// iostat might not be available, return zeros
+		return 0, 0, 0, 0, nil
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var readKBps, writeKBps float64
+	var readOps, writeOps int64
+
+	// Parse iostat output - look for disk device lines
+	// Format: "disk0           0.00    0.00    0.00    0.00"
+	// or:     "disk0           123.45  456.78  1234    5678"
+	foundData := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "disk") && !strings.Contains(line, "device") {
+			parts := strings.Fields(line)
+			if len(parts) >= 5 {
+				// parts[0] = device name, parts[1] = KB_read/s, parts[2] = KB_wrtn/s, parts[3] = reads, parts[4] = writes
+				if r, err := strconv.ParseFloat(parts[1], 64); err == nil {
+					readKBps += r
+				}
+				if w, err := strconv.ParseFloat(parts[2], 64); err == nil {
+					writeKBps += w
+				}
+				if r, err := strconv.ParseInt(parts[3], 10, 64); err == nil {
+					readOps += r
+				}
+				if w, err := strconv.ParseInt(parts[4], 10, 64); err == nil {
+					writeOps += w
+				}
+				foundData = true
+			}
+		}
+	}
+
+	if !foundData {
+		return 0, 0, 0, 0, nil
+	}
+
+	readMBps := readKBps / 1024.0
+	writeMBps := writeKBps / 1024.0
+
+	return readMBps, writeMBps, readOps, writeOps, nil
+}
+
+// getBatteryStatus gets battery information
+func (a *Agent) getBatteryStatus() (int, bool, int, error) {
+	cmd := exec.Command("pmset", "-g", "batt")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, false, 0, err
+	}
+
+	outputStr := string(output)
+	if !strings.Contains(outputStr, "Battery") {
+		// No battery (desktop Mac)
+		return 0, false, 0, fmt.Errorf("no battery")
+	}
+
+	// Parse: " -InternalBattery-0 (id=123456)	100%; charged; 0:00 remaining"
+	// or " -InternalBattery-0 (id=123456)	85%; AC attached; not charging"
+	var level int
+	var charging bool
+	var timeRemaining int
+
+	// Extract battery level
+	if strings.Contains(outputStr, "%") {
+		re := regexp.MustCompile(`(\d+)%`)
+		matches := re.FindStringSubmatch(outputStr)
+		if len(matches) >= 2 {
+			level, _ = strconv.Atoi(matches[1])
+		}
+	}
+
+	// Check charging status
+	charging = strings.Contains(outputStr, "charging") || strings.Contains(outputStr, "AC attached")
+
+	// Extract time remaining
+	if strings.Contains(outputStr, "remaining") {
+		re := regexp.MustCompile(`(\d+):(\d+) remaining`)
+		matches := re.FindStringSubmatch(outputStr)
+		if len(matches) >= 3 {
+			hours, _ := strconv.Atoi(matches[1])
+			minutes, _ := strconv.Atoi(matches[2])
+			timeRemaining = hours*60 + minutes
+		}
+	}
+
+	return level, charging, timeRemaining, nil
+}
+
+// getSystemIdleTime gets system idle time and screen lock status
+func (a *Agent) getSystemIdleTime() (int64, bool, error) {
+	// Get idle time using ioreg
+	cmd := exec.Command("ioreg", "-c", "IOHIDSystem")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, false, err
+	}
+
+	var idleTime int64
+	outputStr := string(output)
+	
+	// Look for HIDIdleTime
+	re := regexp.MustCompile(`"HIDIdleTime"=(\d+)`)
+	matches := re.FindStringSubmatch(outputStr)
+	if len(matches) >= 2 {
+		idleTime, _ = strconv.ParseInt(matches[1], 10, 64)
+		// Convert from nanoseconds to seconds
+		idleTime = idleTime / 1000000000
+	}
+
+	// Check screen lock status - use a simple heuristic based on idle time
+	// If idle time is very high (more than 5 minutes), likely screen is locked
+	// Also check pmset assertions for more accurate detection
+	screenLocked := false
+	if idleTime > 300 { // 5 minutes
+		screenLocked = true
+	}
+
+	// Try to get more accurate screen lock status using pmset
+	cmd = exec.Command("pmset", "-g", "assertions")
+	output, err = cmd.Output()
+	if err == nil {
+		outputStr = string(output)
+		// If there's no active assertion preventing display sleep, screen might be locked
+		// Or if there's an assertion preventing system sleep but not display sleep, screen might be locked
+		if !strings.Contains(outputStr, "PreventUserIdleDisplaySleep") {
+			screenLocked = true
+		}
+	}
+
+	return idleTime, screenLocked, nil
+}
+
+// getProcessCount gets the total number of running processes
+func (a *Agent) getProcessCount() (int, error) {
+	cmd := exec.Command("ps", "-ax")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	// Subtract 1 for the header line
+	count := len(lines) - 1
+	if count < 0 {
+		count = 0
+	}
+
+	return count, nil
+}
+
+// getSystemUptime gets system uptime in seconds
+func (a *Agent) getSystemUptime() (int64, error) {
+	cmd := exec.Command("sysctl", "-n", "kern.boottime")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	// Output format: { sec = 1234567890, usec = 123456 }
+	outputStr := strings.TrimSpace(string(output))
+	re := regexp.MustCompile(`sec = (\d+)`)
+	matches := re.FindStringSubmatch(outputStr)
+	if len(matches) >= 2 {
+		bootTime, err := strconv.ParseInt(matches[1], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		uptime := time.Now().Unix() - bootTime
+		return uptime, nil
+	}
+
+	return 0, fmt.Errorf("could not parse boot time")
+}
+
+// collectProcessMetrics collects per-process CPU and memory metrics
+func (a *Agent) collectProcessMetrics() []*ProcessMetrics {
+	var metrics []*ProcessMetrics
+
+	cmd := exec.Command("ps", "-ax", "-o", "pid,pcpu,pmem,rss,comm")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("Error getting process metrics: %v", err)
+		return metrics
+	}
+
+	lines := strings.Split(string(output), "\n")
+	// Skip header line
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+
+		var pid int
+		var cpuPercent, memPercent float64
+		var rssKB int64
+
+		// Parse: "1234  5.2  2.1  123456  ProcessName"
+		parts := strings.Fields(line)
+		if len(parts) >= 5 {
+			pid, _ = strconv.Atoi(parts[0])
+			cpuPercent, _ = strconv.ParseFloat(parts[1], 64)
+			memPercent, _ = strconv.ParseFloat(parts[2], 64)
+			rssKB, _ = strconv.ParseInt(parts[3], 10, 64)
+
+			// Get process name (may contain spaces, so join remaining parts)
+			processName := strings.Join(parts[4:], " ")
+
+			// Convert RSS from KB to MB
+			memoryMB := rssKB / 1024
+
+			metrics = append(metrics, &ProcessMetrics{
+				PID:        pid,
+				Name:       processName,
+				CPUPercent: cpuPercent,
+				MemoryMB:   memoryMB,
+				Timestamp:  time.Now(),
+			})
+		}
+	}
+
+	return metrics
+}
+
+// updateSystemMetrics collects and stores system and process metrics
+func (a *Agent) updateSystemMetrics() {
+	// Collect system metrics
+	systemMetrics := a.collectSystemMetrics()
+	a.combinedData.SystemMetrics = append(a.combinedData.SystemMetrics, systemMetrics)
+
+	// Collect process metrics
+	processMetrics := a.collectProcessMetrics()
+	a.combinedData.ProcessMetrics = append(a.combinedData.ProcessMetrics, processMetrics...)
+
+	// Limit the size of metrics arrays to prevent unbounded growth
+	// Keep last 576 entries (15 seconds * 576 = 144 minutes = ~2.4 hours)
+	maxEntries := 576
+	if len(a.combinedData.SystemMetrics) > maxEntries {
+		a.combinedData.SystemMetrics = a.combinedData.SystemMetrics[len(a.combinedData.SystemMetrics)-maxEntries:]
+	}
+
+	// For process metrics, keep last 10000 entries (roughly 2-3 hours depending on process count)
+	maxProcessEntries := 10000
+	if len(a.combinedData.ProcessMetrics) > maxProcessEntries {
+		a.combinedData.ProcessMetrics = a.combinedData.ProcessMetrics[len(a.combinedData.ProcessMetrics)-maxProcessEntries:]
+	}
+}
+
 func (a *Agent) updateAppUsage() {
 	currentTime := time.Now()
 	interval := int64(15)
@@ -576,6 +1002,7 @@ func (a *Agent) Start() {
 
 	a.updateAppUsage()
 	a.updateNetworkUsage()
+	a.updateSystemMetrics()
 	a.saveCombinedData()
 
 	for {
@@ -589,6 +1016,7 @@ func (a *Agent) Start() {
 
 			a.updateAppUsage()
 			a.updateNetworkUsage()
+			a.updateSystemMetrics()
 			a.saveCombinedData()
 			a.triggerDataTransmission()
 		}
