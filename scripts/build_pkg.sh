@@ -11,7 +11,7 @@ echo "========================================"
 # 設定
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/pkg"
-VERSION="${1:-1.2.0}"
+VERSION="${1:-1.2.8}"
 ARCH="${2:-arm64}"
 
 if [ "$ARCH" = "arm64" ]; then

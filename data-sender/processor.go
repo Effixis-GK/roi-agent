@@ -325,7 +325,7 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 
 	// Add metadata
 	payload.Metadata.OSVersion = "macOS"
-	payload.Metadata.AgentVersion = "1.0.0"
+	payload.Metadata.AgentVersion = GetAgentVersion()
 	payload.Metadata.TotalApps = len(data.Apps)
 	payload.Metadata.TotalDomains = len(domainAccess)
 

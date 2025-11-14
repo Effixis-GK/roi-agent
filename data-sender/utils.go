@@ -60,7 +60,7 @@ func (ds *DataSender) TestConnection() {
 	
 	// Set metadata with correct counts
 	testPayload.Metadata.OSVersion = "macOS"
-	testPayload.Metadata.AgentVersion = "1.0.0-test"
+	testPayload.Metadata.AgentVersion = GetAgentVersion() + "-test"
 	testPayload.Metadata.TotalApps = 1
 	testPayload.Metadata.TotalDomains = 1
 
