@@ -258,17 +258,9 @@ func getUserInfo() (hostname, employeeName, employeeEmail string) {
 		hostname = strings.TrimSpace(string(hostnameBytes))
 	}
 
-	// Get employee name (full name from macOS)
-	// Try "id -F" first (macOS specific)
-	if nameBytes, err := exec.Command("id", "-F").Output(); err == nil {
-		employeeName = strings.TrimSpace(string(nameBytes))
-	}
-
-	// Fallback to whoami if id -F fails
-	if employeeName == "" {
-		if userBytes, err := exec.Command("whoami").Output(); err == nil {
-			employeeName = strings.TrimSpace(string(userBytes))
-		}
+	// Get employee name (username from whoami)
+	if userBytes, err := exec.Command("whoami").Output(); err == nil {
+		employeeName = strings.TrimSpace(string(userBytes))
 	}
 
 	// Try to get email from dscl (macOS directory services)
