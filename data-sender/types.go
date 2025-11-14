@@ -32,10 +32,14 @@ type TransmissionPayload struct {
 	Apps         []AppData     `json:"apps"`
 	Networks     []NetworkData `json:"networks"`
 	Metadata     struct {
-		OSVersion    string `json:"os_version"`
-		AgentVersion string `json:"agent_version"`
-		TotalApps    int    `json:"total_apps"`
-		TotalDomains int    `json:"total_domains"`
+		OSVersion     string `json:"os_version"`
+		AgentVersion  string `json:"agent_version"`
+		TotalApps     int    `json:"total_apps"`
+		TotalDomains  int    `json:"total_domains"`
+		Hostname      string `json:"hostname,omitempty"`
+		EmployeeName  string `json:"employee_name,omitempty"`
+		Department    string `json:"department,omitempty"`
+		EmployeeEmail string `json:"employee_email,omitempty"`
 	} `json:"metadata"`
 }
 

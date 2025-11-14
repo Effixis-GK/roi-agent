@@ -5,7 +5,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -61,6 +63,12 @@ func (ds *DataSender) TestConnection() {
 	testPayload.Metadata.AgentVersion = "1.0.0-test"
 	testPayload.Metadata.TotalApps = 1
 	testPayload.Metadata.TotalDomains = 1
+
+	// Add user information
+	hostname, employeeName, employeeEmail := getUserInfo()
+	testPayload.Metadata.Hostname = hostname
+	testPayload.Metadata.EmployeeName = employeeName
+	testPayload.Metadata.EmployeeEmail = employeeEmail
 	
 	fmt.Println("\n🔄 Testing connection to server...")
 	fmt.Println("   Sending minimal test payload with sample app and network data")
@@ -241,4 +249,42 @@ ROI_AGENT_INTERVAL_MINUTES=%d
 	// Set environment variable for current session
 	os.Setenv("ROI_AGENT_INTERVAL_MINUTES", fmt.Sprintf("%d", minutes))
 	fmt.Println("Note: Restart the agent for the new interval to take effect.")
+}
+
+// getUserInfo retrieves current user information from the system
+func getUserInfo() (hostname, employeeName, employeeEmail string) {
+	// Get hostname
+	if hostnameBytes, err := exec.Command("hostname").Output(); err == nil {
+		hostname = strings.TrimSpace(string(hostnameBytes))
+	}
+
+	// Get employee name (full name from macOS)
+	// Try "id -F" first (macOS specific)
+	if nameBytes, err := exec.Command("id", "-F").Output(); err == nil {
+		employeeName = strings.TrimSpace(string(nameBytes))
+	}
+
+	// Fallback to whoami if id -F fails
+	if employeeName == "" {
+		if userBytes, err := exec.Command("whoami").Output(); err == nil {
+			employeeName = strings.TrimSpace(string(userBytes))
+		}
+	}
+
+	// Try to get email from dscl (macOS directory services)
+	username := os.Getenv("USER")
+	if username != "" {
+		// Try to get email from dscl
+		cmd := exec.Command("dscl", ".", "-read", "/Users/"+username, "EMailAddress")
+		if emailBytes, err := cmd.Output(); err == nil {
+			emailOutput := string(emailBytes)
+			// Parse output: "EMailAddress: email@example.com"
+			parts := strings.SplitN(emailOutput, ":", 2)
+			if len(parts) == 2 {
+				employeeEmail = strings.TrimSpace(parts[1])
+			}
+		}
+	}
+
+	return hostname, employeeName, employeeEmail
 }

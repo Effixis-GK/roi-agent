@@ -329,7 +329,14 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 	payload.Metadata.TotalApps = len(data.Apps)
 	payload.Metadata.TotalDomains = len(domainAccess)
 
+	// Add user information
+	hostname, employeeName, employeeEmail := getUserInfo()
+	payload.Metadata.Hostname = hostname
+	payload.Metadata.EmployeeName = employeeName
+	payload.Metadata.EmployeeEmail = employeeEmail
+
 	log.Printf("Created payload with %d apps and %d network connections", len(payload.Apps), len(payload.Networks))
+	log.Printf("User Info: hostname=%s, name=%s, email=%s", hostname, employeeName, employeeEmail)
 
 	return payload
 }
