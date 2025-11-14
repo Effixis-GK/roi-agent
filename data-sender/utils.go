@@ -258,16 +258,23 @@ func getUserInfo() (hostname, employeeName, employeeEmail string) {
 		hostname = strings.TrimSpace(string(hostnameBytes))
 	}
 
-	// Get employee name (username from whoami)
-	if userBytes, err := exec.Command("whoami").Output(); err == nil {
+	// Get actual logged-in user (not "root" even when running as LaunchDaemon)
+	// This matches the logic in installer_generator.py line 216
+	if userBytes, err := exec.Command("stat", "-f", "%Su", "/dev/console").Output(); err == nil {
 		employeeName = strings.TrimSpace(string(userBytes))
 	}
 
+	// Fallback to whoami if stat fails
+	if employeeName == "" {
+		if userBytes, err := exec.Command("whoami").Output(); err == nil {
+			employeeName = strings.TrimSpace(string(userBytes))
+		}
+	}
+
 	// Try to get email from dscl (macOS directory services)
-	username := os.Getenv("USER")
-	if username != "" {
-		// Try to get email from dscl
-		cmd := exec.Command("dscl", ".", "-read", "/Users/"+username, "EMailAddress")
+	// Use the actual username, not $USER which might be "root"
+	if employeeName != "" && employeeName != "root" {
+		cmd := exec.Command("dscl", ".", "-read", "/Users/"+employeeName, "EMailAddress")
 		if emailBytes, err := cmd.Output(); err == nil {
 			emailOutput := string(emailBytes)
 			// Parse output: "EMailAddress: email@example.com"
