@@ -87,8 +87,8 @@ UNINSTALLATION:
   sudo /Applications/ROI Agent/bin/uninstall.sh
 
 LOGS:
-  /var/log/roiagent.log
-  /var/log/roiagent-error.log
+  /var/log/roiagent/roiagent.log
+  /var/log/roiagent/roiagent-error.log
 
 SUPPORT:
   https://roi-dashboard-607617540267.asia-northeast1.run.app
@@ -261,7 +261,7 @@ launchctl kickstart -k system/com.roiagent.daemon 2>/dev/null || true
 
 echo ""
 echo "✅ ROI Agent installed and started!"
-echo "📊 Check logs: tail -f /var/log/roiagent.log"
+echo "📊 Check logs: tail -f /var/log/roiagent/roiagent.log"
 echo "🔒 Running with root privileges for DNS monitoring"
 echo ""
 echo "🔍 Verify installation:"
