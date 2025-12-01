@@ -832,7 +832,7 @@ func (a *Agent) collectProcessMetrics() []*ProcessMetrics {
 		}
 
 		var pid int
-		var cpuPercent, memPercent float64
+		var cpuPercent float64
 		var rssKB int64
 
 		// Parse: "1234  5.2  2.1  123456  ProcessName"
@@ -840,7 +840,7 @@ func (a *Agent) collectProcessMetrics() []*ProcessMetrics {
 		if len(parts) >= 5 {
 			pid, _ = strconv.Atoi(parts[0])
 			cpuPercent, _ = strconv.ParseFloat(parts[1], 64)
-			memPercent, _ = strconv.ParseFloat(parts[2], 64)
+			// parts[2] is memPercent (not used, we use RSS instead)
 			rssKB, _ = strconv.ParseInt(parts[3], 10, 64)
 
 			// Get process name (may contain spaces, so join remaining parts)
