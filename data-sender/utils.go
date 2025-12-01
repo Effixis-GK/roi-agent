@@ -251,6 +251,17 @@ ROI_AGENT_INTERVAL_MINUTES=%d
 	fmt.Println("Note: Restart the agent for the new interval to take effect.")
 }
 
+// getOSVersion retrieves the macOS version
+func getOSVersion() string {
+	// Try to get macOS version using sw_vers
+	if versionBytes, err := exec.Command("sw_vers", "-productVersion").Output(); err == nil {
+		version := strings.TrimSpace(string(versionBytes))
+		return "macOS " + version
+	}
+	// Fallback
+	return "macOS"
+}
+
 // getUserInfo retrieves current user information from the system
 func getUserInfo() (hostname, employeeName, employeeEmail string) {
 	// Get hostname

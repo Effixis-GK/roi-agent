@@ -415,3 +415,70 @@ func (ds *DataSender) saveTransmissionData(payload TransmissionPayload, startTim
 
 	return ioutil.WriteFile(filePath, data, 0644)
 }
+
+// SendInitialRegistration sends an initial registration payload with device info and version
+// This is called immediately after installation to register the device without waiting for the first interval
+func (ds *DataSender) SendInitialRegistration() error {
+	if !ds.config.Enabled {
+		log.Println("Data transmission is disabled")
+		return fmt.Errorf("data transmission is disabled")
+	}
+
+	log.Println("Sending initial registration...")
+
+	now := time.Now()
+	timestamp := now.UTC().Format(time.RFC3339)
+
+	// Create a minimal payload with device info only (no app/network data)
+	payload := TransmissionPayload{
+		DeviceID:       ds.config.DeviceID,
+		Timestamp:      timestamp,
+		IntervalMins:   0, // 0 indicates this is an initial registration, not a regular interval
+		StartTime:      timestamp,
+		EndTime:        timestamp,
+		Apps:           make([]AppData, 0),
+		Networks:       make([]NetworkData, 0),
+		SystemMetrics:  make([]SystemMetricsData, 0),
+		ProcessMetrics: make([]ProcessMetricsData, 0),
+	}
+
+	// Add metadata with device and version info
+	payload.Metadata.OSVersion = getOSVersion()
+	payload.Metadata.AgentVersion = GetAgentVersion()
+	payload.Metadata.TotalApps = 0
+	payload.Metadata.TotalDomains = 0
+
+	// Add user information
+	hostname, employeeName, employeeEmail := getUserInfo()
+	payload.Metadata.Hostname = hostname
+	payload.Metadata.EmployeeName = employeeName
+	payload.Metadata.EmployeeEmail = employeeEmail
+
+	log.Printf("Initial registration payload: DeviceID=%s, Version=%s, Hostname=%s",
+		ds.config.DeviceID, payload.Metadata.AgentVersion, hostname)
+
+	// Send data to server with retry
+	retryCount := 0
+	maxRetries := 3
+	var lastErr error
+
+	for retryCount <= maxRetries {
+		err := ds.sendData(payload)
+		if err == nil {
+			log.Printf("Initial registration sent successfully")
+			return nil
+		}
+
+		lastErr = err
+		log.Printf("Initial registration failed (attempt %d/%d): %v", retryCount+1, maxRetries+1, err)
+		retryCount++
+
+		if retryCount <= maxRetries {
+			waitTime := time.Duration(retryCount*2) * time.Second
+			log.Printf("Retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+		}
+	}
+
+	return fmt.Errorf("initial registration failed after %d attempts: %v", maxRetries+1, lastErr)
+}
