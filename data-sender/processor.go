@@ -430,10 +430,11 @@ func (ds *DataSender) SendInitialRegistration() error {
 	timestamp := now.UTC().Format(time.RFC3339)
 
 	// Create a minimal payload with device info only (no app/network data)
+	// Note: IntervalMins must be > 0 for API validation
 	payload := TransmissionPayload{
 		DeviceID:       ds.config.DeviceID,
 		Timestamp:      timestamp,
-		IntervalMins:   0, // 0 indicates this is an initial registration, not a regular interval
+		IntervalMins:   1, // Minimum valid interval (API requires > 0)
 		StartTime:      timestamp,
 		EndTime:        timestamp,
 		Apps:           make([]AppData, 0),
