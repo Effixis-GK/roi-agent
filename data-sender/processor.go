@@ -166,9 +166,11 @@ func (ds *DataSender) loadDataForInterval(startTime, endTime time.Time) (*Combin
 // filterDataForInterval filters data to only include activity within the specified interval
 func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTime time.Time) *CombinedData {
 	filtered := &CombinedData{
-		Date:    data.Date,
-		Apps:    make(map[string]*AppUsage),
-		Network: make(map[string]*NetworkConn),
+		Date:           data.Date,
+		Apps:           make(map[string]*AppUsage),
+		Network:        make(map[string]*NetworkConn),
+		SystemMetrics:  make([]*SystemMetricsLocal, 0),
+		ProcessMetrics: make([]*ProcessMetricsLocal, 0),
 	}
 
 	// 累積データをそのまま使用（10分間の累積データとして扱う）
@@ -201,9 +203,23 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 		}
 	}
 
-	log.Printf("Filtered data for interval %s-%s: %d apps, %d network connections",
+	// Filter system metrics for the interval
+	for _, metric := range data.SystemMetrics {
+		if !metric.Timestamp.Before(startTime) && !metric.Timestamp.After(endTime) {
+			filtered.SystemMetrics = append(filtered.SystemMetrics, metric)
+		}
+	}
+
+	// Filter process metrics for the interval
+	for _, metric := range data.ProcessMetrics {
+		if !metric.Timestamp.Before(startTime) && !metric.Timestamp.After(endTime) {
+			filtered.ProcessMetrics = append(filtered.ProcessMetrics, metric)
+		}
+	}
+
+	log.Printf("Filtered data for interval %s-%s: %d apps, %d network connections, %d system metrics, %d process metrics",
 		startTime.Format("15:04"), endTime.Format("15:04"),
-		len(filtered.Apps), len(filtered.Network))
+		len(filtered.Apps), len(filtered.Network), len(filtered.SystemMetrics), len(filtered.ProcessMetrics))
 
 	return filtered
 }
@@ -226,17 +242,19 @@ func (ds *DataSender) resetCombinedDataAfterTransmission(dataFilePath string) er
 		return fmt.Errorf("failed to parse data file: %v", err)
 	}
 
-	// 累積データをリセット（空のマップで初期化）
-	combinedData.Apps = make(map[string]*AppUsage)
-	combinedData.Network = make(map[string]*NetworkConn)
-	
-	// AppTotalとNetworkTotalもリセット
-	combinedData.AppTotal.ForegroundTime = 0
-	combinedData.AppTotal.BackgroundTime = 0
-	combinedData.AppTotal.FocusTime = 0
-	combinedData.NetworkTotal.TotalDuration = 0
-	combinedData.NetworkTotal.UniqueConnections = 0
-	combinedData.NetworkTotal.UniqueDomains = 0
+		// 累積データをリセット（空のマップで初期化）
+		combinedData.Apps = make(map[string]*AppUsage)
+		combinedData.Network = make(map[string]*NetworkConn)
+		combinedData.SystemMetrics = make([]*SystemMetricsLocal, 0)
+		combinedData.ProcessMetrics = make([]*ProcessMetricsLocal, 0)
+		
+		// AppTotalとNetworkTotalもリセット
+		combinedData.AppTotal.ForegroundTime = 0
+		combinedData.AppTotal.BackgroundTime = 0
+		combinedData.AppTotal.FocusTime = 0
+		combinedData.NetworkTotal.TotalDuration = 0
+		combinedData.NetworkTotal.UniqueConnections = 0
+		combinedData.NetworkTotal.UniqueDomains = 0
 
 	// リセット後のデータを保存
 	resetData, err := json.MarshalIndent(combinedData, "", "  ")
@@ -257,13 +275,15 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 
 	payload := TransmissionPayload{
-		DeviceID:     ds.config.DeviceID,
-		Timestamp:    timestamp,
-		IntervalMins: ds.intervalMinutes,
-		StartTime:    startTime.UTC().Format(time.RFC3339),
-		EndTime:      endTime.UTC().Format(time.RFC3339),
-		Apps:         make([]AppData, 0),
-		Networks:     make([]NetworkData, 0),
+		DeviceID:       ds.config.DeviceID,
+		Timestamp:      timestamp,
+		IntervalMins:   ds.intervalMinutes,
+		StartTime:      startTime.UTC().Format(time.RFC3339),
+		EndTime:        endTime.UTC().Format(time.RFC3339),
+		Apps:           make([]AppData, 0),
+		Networks:       make([]NetworkData, 0),
+		SystemMetrics:  make([]SystemMetricsData, 0),
+		ProcessMetrics: make([]ProcessMetricsData, 0),
 	}
 
 	// Process application data - send ALL apps with their individual focus times
@@ -323,6 +343,46 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 		payload.Networks = append(payload.Networks, *networkData)
 	}
 
+	// Convert system metrics to transmission format
+	for _, metric := range data.SystemMetrics {
+		systemMetricData := SystemMetricsData{
+			Timestamp:           metric.Timestamp.UTC().Format(time.RFC3339),
+			CPUPercent:          metric.CPUPercent,
+			MemoryUsedMB:        metric.MemoryUsedMB,
+			MemoryTotalMB:      metric.MemoryTotalMB,
+			MemoryPercent:       metric.MemoryPercent,
+			DiskReadMBps:        metric.DiskReadMBps,
+			DiskWriteMBps:       metric.DiskWriteMBps,
+			DiskReadOps:         metric.DiskReadOps,
+			DiskWriteOps:        metric.DiskWriteOps,
+			IdleTimeSec:         metric.IdleTimeSec,
+			ScreenLocked:        metric.ScreenLocked,
+			ProcessCount:        metric.ProcessCount,
+			SystemUptimeSec:     metric.SystemUptimeSec,
+		}
+		// Only include battery fields if they are set (non-zero or true)
+		if metric.BatteryLevel > 0 {
+			systemMetricData.BatteryLevel = metric.BatteryLevel
+			systemMetricData.BatteryCharging = metric.BatteryCharging
+			if metric.BatteryTimeRemaining > 0 {
+				systemMetricData.BatteryTimeRemaining = metric.BatteryTimeRemaining
+			}
+		}
+		payload.SystemMetrics = append(payload.SystemMetrics, systemMetricData)
+	}
+
+	// Convert process metrics to transmission format
+	for _, metric := range data.ProcessMetrics {
+		processMetricData := ProcessMetricsData{
+			PID:        metric.PID,
+			Name:       metric.Name,
+			CPUPercent: metric.CPUPercent,
+			MemoryMB:   metric.MemoryMB,
+			Timestamp:  metric.Timestamp.UTC().Format(time.RFC3339),
+		}
+		payload.ProcessMetrics = append(payload.ProcessMetrics, processMetricData)
+	}
+
 	// Add metadata
 	payload.Metadata.OSVersion = "macOS"
 	payload.Metadata.AgentVersion = GetAgentVersion()
@@ -335,7 +395,8 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 	payload.Metadata.EmployeeName = employeeName
 	payload.Metadata.EmployeeEmail = employeeEmail
 
-	log.Printf("Created payload with %d apps and %d network connections", len(payload.Apps), len(payload.Networks))
+	log.Printf("Created payload with %d apps, %d network connections, %d system metrics, %d process metrics",
+		len(payload.Apps), len(payload.Networks), len(payload.SystemMetrics), len(payload.ProcessMetrics))
 	log.Printf("User Info: hostname=%s, name=%s, email=%s", hostname, employeeName, employeeEmail)
 
 	return payload
@@ -353,4 +414,71 @@ func (ds *DataSender) saveTransmissionData(payload TransmissionPayload, startTim
 	}
 
 	return ioutil.WriteFile(filePath, data, 0644)
+}
+
+// SendInitialRegistration sends an initial registration payload with device info and version
+// This is called immediately after installation to register the device without waiting for the first interval
+func (ds *DataSender) SendInitialRegistration() error {
+	if !ds.config.Enabled {
+		log.Println("Data transmission is disabled")
+		return fmt.Errorf("data transmission is disabled")
+	}
+
+	log.Println("Sending initial registration...")
+
+	now := time.Now()
+	timestamp := now.UTC().Format(time.RFC3339)
+
+	// Create a minimal payload with device info only (no app/network data)
+	payload := TransmissionPayload{
+		DeviceID:       ds.config.DeviceID,
+		Timestamp:      timestamp,
+		IntervalMins:   0, // 0 indicates this is an initial registration, not a regular interval
+		StartTime:      timestamp,
+		EndTime:        timestamp,
+		Apps:           make([]AppData, 0),
+		Networks:       make([]NetworkData, 0),
+		SystemMetrics:  make([]SystemMetricsData, 0),
+		ProcessMetrics: make([]ProcessMetricsData, 0),
+	}
+
+	// Add metadata with device and version info
+	payload.Metadata.OSVersion = getOSVersion()
+	payload.Metadata.AgentVersion = GetAgentVersion()
+	payload.Metadata.TotalApps = 0
+	payload.Metadata.TotalDomains = 0
+
+	// Add user information
+	hostname, employeeName, employeeEmail := getUserInfo()
+	payload.Metadata.Hostname = hostname
+	payload.Metadata.EmployeeName = employeeName
+	payload.Metadata.EmployeeEmail = employeeEmail
+
+	log.Printf("Initial registration payload: DeviceID=%s, Version=%s, Hostname=%s",
+		ds.config.DeviceID, payload.Metadata.AgentVersion, hostname)
+
+	// Send data to server with retry
+	retryCount := 0
+	maxRetries := 3
+	var lastErr error
+
+	for retryCount <= maxRetries {
+		err := ds.sendData(payload)
+		if err == nil {
+			log.Printf("Initial registration sent successfully")
+			return nil
+		}
+
+		lastErr = err
+		log.Printf("Initial registration failed (attempt %d/%d): %v", retryCount+1, maxRetries+1, err)
+		retryCount++
+
+		if retryCount <= maxRetries {
+			waitTime := time.Duration(retryCount*2) * time.Second
+			log.Printf("Retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+		}
+	}
+
+	return fmt.Errorf("initial registration failed after %d attempts: %v", maxRetries+1, lastErr)
 }

@@ -13,6 +13,7 @@ func main() {
 		fmt.Println("")
 		fmt.Println("Usage:")
 		fmt.Println("  data-sender process                 # Process and send current 10-minute interval")
+		fmt.Println("  data-sender register                # Send initial registration (device info + version)")
 		fmt.Println("  data-sender test                    # Test configuration and connection")
 		fmt.Println("  data-sender status                  # Show current status and configuration")
 		fmt.Println("  data-sender logs [limit]            # Show recent transmission logs (default: 10)")
@@ -22,6 +23,7 @@ func main() {
 		fmt.Println("")
 		fmt.Println("Examples:")
 		fmt.Println("  data-sender process                 # Send data for the current interval")
+		fmt.Println("  data-sender register                # Register device immediately after install")
 		fmt.Println("  data-sender test                    # Test if data transmission works")
 		fmt.Println("  data-sender logs 20                 # Show last 20 transmission attempts")
 		fmt.Println("  data-sender set-interval 5          # Set interval to 5 minutes")
@@ -41,6 +43,11 @@ func main() {
 		if err := sender.processCurrentInterval(); err != nil {
 			log.Fatalf("Error processing current interval: %v", err)
 		}
+	case "register":
+		if err := sender.SendInitialRegistration(); err != nil {
+			log.Fatalf("Error sending initial registration: %v", err)
+		}
+		fmt.Println("✅ Initial registration sent successfully!")
 	case "test":
 		sender.TestConnection()
 	case "status":
