@@ -1037,6 +1037,9 @@ func (a *Agent) Status() map[string]interface{} {
 }
 
 func main() {
+	// ログを標準出力に設定（LaunchDaemonで/var/log/roiagent.logに出力するため）
+	log.SetOutput(os.Stdout)
+	
 	agent := NewAgent()
 
 	if len(os.Args) > 1 {
