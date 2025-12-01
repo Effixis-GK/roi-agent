@@ -77,6 +77,7 @@ func (ds *DataSender) tryLoadYAMLConfig() bool {
 func (ds *DataSender) loadEnvConfig() {
 	// Load .env file if it exists - try multiple locations
 	envPaths := []string{
+		"/Applications/ROI Agent/Resources/.env", // LaunchDaemon installation (PKG)
 		".env",               // Current directory
 		"./data-sender/.env", // From project root
 		"../.env",            // Parent directory
