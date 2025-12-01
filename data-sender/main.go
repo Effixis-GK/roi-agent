@@ -12,11 +12,13 @@ func main() {
 	log.SetOutput(os.Stdout)
 	
 	if len(os.Args) < 2 {
-		fmt.Println("ROI Agent Data Sender - Enhanced with 10-minute intervals")
+		fmt.Println("ROI Agent Data Sender - Enhanced with remote configuration")
 		fmt.Println("")
 		fmt.Println("Usage:")
-		fmt.Println("  data-sender process                 # Process and send current 10-minute interval")
+		fmt.Println("  data-sender process                 # Process and send current interval data")
 		fmt.Println("  data-sender register                # Send initial registration (device info + version)")
+		fmt.Println("  data-sender fetch-config            # Fetch remote configuration from server")
+		fmt.Println("  data-sender show-config             # Show current remote configuration")
 		fmt.Println("  data-sender test                    # Test configuration and connection")
 		fmt.Println("  data-sender status                  # Show current status and configuration")
 		fmt.Println("  data-sender logs [limit]            # Show recent transmission logs (default: 10)")
@@ -26,10 +28,10 @@ func main() {
 		fmt.Println("")
 		fmt.Println("Examples:")
 		fmt.Println("  data-sender process                 # Send data for the current interval")
+		fmt.Println("  data-sender fetch-config            # Fetch latest remote config")
 		fmt.Println("  data-sender register                # Register device immediately after install")
 		fmt.Println("  data-sender test                    # Test if data transmission works")
 		fmt.Println("  data-sender logs 20                 # Show last 20 transmission attempts")
-		fmt.Println("  data-sender set-interval 5          # Set interval to 5 minutes")
 		fmt.Println("")
 		fmt.Println("Environment Variables (.env file):")
 		fmt.Println("  ROI_AGENT_BASE_URL         # Server base URL")
@@ -43,6 +45,8 @@ func main() {
 
 	switch command {
 	case "process":
+		// Check and apply remote config before processing
+		sender.CheckAndApplyRemoteConfig()
 		if err := sender.processCurrentInterval(); err != nil {
 			log.Fatalf("Error processing current interval: %v", err)
 		}
@@ -51,6 +55,10 @@ func main() {
 			log.Fatalf("Error sending initial registration: %v", err)
 		}
 		fmt.Println("✅ Initial registration sent successfully!")
+	case "fetch-config":
+		sender.FetchAndShowRemoteConfig()
+	case "show-config":
+		sender.ShowRemoteConfig()
 	case "test":
 		sender.TestConnection()
 	case "status":
