@@ -119,10 +119,10 @@ cat > "$RESOURCES_DIR/com.roiagent.daemon.plist" << 'EOF'
     </dict>
     
     <key>StandardOutPath</key>
-    <string>/var/log/roiagent.log</string>
+    <string>/var/log/roiagent/roiagent.log</string>
     
     <key>StandardErrorPath</key>
-    <string>/var/log/roiagent-error.log</string>
+    <string>/var/log/roiagent/roiagent-error.log</string>
     
     <key>WorkingDirectory</key>
     <string>/Applications/ROI Agent</string>
@@ -162,10 +162,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo ""
-read -p "Remove logs (/var/log/roiagent*)? [y/N] " -n 1 -r
+read -p "Remove logs (/var/log/roiagent/)? [y/N] " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    rm -f /var/log/roiagent*.log
+    rm -rf /var/log/roiagent
     echo "  ✅ Logs removed"
 fi
 
@@ -200,10 +200,12 @@ mkdir -p /var/root/.roiagent/logs
 mkdir -p /var/root/.roiagent/data
 mkdir -p /var/root/.roiagent/transmission
 
-# ログファイル作成
-touch /var/log/roiagent.log
-touch /var/log/roiagent-error.log
-chmod 644 /var/log/roiagent*.log
+# システムログディレクトリ作成
+mkdir -p /var/log/roiagent
+touch /var/log/roiagent/roiagent.log
+touch /var/log/roiagent/roiagent-error.log
+chmod 755 /var/log/roiagent
+chmod 644 /var/log/roiagent/*.log
 
 # .envファイルの確認
 ENV_FILE="/Applications/ROI Agent/Resources/.env"
