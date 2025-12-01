@@ -20,6 +20,7 @@ type DataSender struct {
 	logPath         string
 	intervalMinutes int
 	defaultInterval int
+	configPoller    *ConfigPoller
 }
 
 // NewDataSender creates a new data sender instance
@@ -52,8 +53,124 @@ func NewDataSender() *DataSender {
 	}
 
 	sender.loadConfig()
+	
+	// Initialize remote config poller
+	sender.configPoller = NewConfigPoller(&sender.config)
+	
 	return sender
 }
+
+// CheckAndApplyRemoteConfig checks for remote config updates and applies them
+func (ds *DataSender) CheckAndApplyRemoteConfig() {
+	if ds.configPoller == nil {
+		return
+	}
+	
+	// Fetch remote config if it's time to poll
+	if ds.configPoller.ShouldPoll() {
+		log.Println("Checking for remote configuration updates...")
+		remoteConfig, err := ds.configPoller.FetchConfig()
+		if err != nil {
+			log.Printf("Error fetching remote config: %v", err)
+			return
+		}
+		
+		// Apply remote config settings
+		if remoteConfig != nil {
+			// Update interval if changed
+			if remoteConfig.IntervalMinutes > 0 && remoteConfig.IntervalMinutes != ds.intervalMinutes {
+				log.Printf("Remote config: Updating interval from %d to %d minutes", 
+					ds.intervalMinutes, remoteConfig.IntervalMinutes)
+				ds.intervalMinutes = remoteConfig.IntervalMinutes
+			}
+			
+			// Update enabled status
+			ds.config.Enabled = remoteConfig.Enabled
+			
+			// Execute any pending commands
+			ds.configPoller.ExecuteCommands()
+		}
+	}
+}
+
+// FetchAndShowRemoteConfig fetches and displays the remote configuration
+func (ds *DataSender) FetchAndShowRemoteConfig() {
+	if ds.configPoller == nil {
+		fmt.Println("Remote config poller not initialized")
+		return
+	}
+	
+	fmt.Println("Fetching remote configuration from server...")
+	remoteConfig, err := ds.configPoller.FetchConfig()
+	if err != nil {
+		fmt.Printf("❌ Error fetching remote config: %v\n", err)
+		return
+	}
+	
+	fmt.Println("✅ Remote configuration fetched successfully!")
+	fmt.Println("")
+	ds.printRemoteConfig(remoteConfig)
+	
+	// Execute any pending commands
+	if len(remoteConfig.Commands) > 0 {
+		fmt.Printf("\n📋 Pending commands: %d\n", len(remoteConfig.Commands))
+		for _, cmd := range remoteConfig.Commands {
+			fmt.Printf("  - %s (ID: %s)\n", cmd.Command, cmd.ID)
+		}
+		fmt.Println("\nExecuting commands...")
+		ds.configPoller.ExecuteCommands()
+	}
+}
+
+// ShowRemoteConfig displays the current remote configuration
+func (ds *DataSender) ShowRemoteConfig() {
+	if ds.configPoller == nil {
+		fmt.Println("Remote config poller not initialized")
+		return
+	}
+	
+	remoteConfig := ds.configPoller.GetCurrentConfig()
+	if remoteConfig == nil {
+		fmt.Println("No remote configuration cached locally.")
+		fmt.Println("Run 'data-sender fetch-config' to fetch from server.")
+		return
+	}
+	
+	fmt.Println("📋 Current Remote Configuration (cached)")
+	fmt.Println("")
+	ds.printRemoteConfig(remoteConfig)
+}
+
+// printRemoteConfig prints the remote configuration in a readable format
+func (ds *DataSender) printRemoteConfig(config *RemoteConfig) {
+	fmt.Printf("  Config Version:    %d\n", config.ConfigVersion)
+	fmt.Printf("  Interval Minutes:  %d\n", config.IntervalMinutes)
+	fmt.Printf("  Enabled:           %v\n", config.Enabled)
+	fmt.Println("")
+	fmt.Println("  Collection Settings:")
+	fmt.Printf("    - Apps:           %v\n", config.CollectApps)
+	fmt.Printf("    - Network:        %v\n", config.CollectNetwork)
+	fmt.Printf("    - System Metrics: %v\n", config.CollectSystemMetrics)
+	fmt.Printf("    - Process Metrics:%v\n", config.CollectProcessMetrics)
+	fmt.Println("")
+	fmt.Printf("  Detail Level:      %s\n", config.DetailLevel)
+	fmt.Printf("  Sample Rate:       %d seconds\n", config.SampleRateSeconds)
+	
+	if len(config.ExcludedApps) > 0 {
+		fmt.Println("")
+		fmt.Println("  Excluded Apps:")
+		for _, app := range config.ExcludedApps {
+			fmt.Printf("    - %s\n", app)
+		}
+	}
+	
+	if len(config.ExcludedDomains) > 0 {
+		fmt.Println("")
+		fmt.Println("  Excluded Domains:")
+		for _, domain := range config.ExcludedDomains {
+			fmt.Printf("    - %s\n", domain)
+		}
+	}
 
 // processCurrentInterval processes and sends data for the current interval
 func (ds *DataSender) processCurrentInterval() error {
