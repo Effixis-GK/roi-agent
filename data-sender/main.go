@@ -8,6 +8,9 @@ import (
 )
 
 func main() {
+	// ログを標準出力に設定（LaunchDaemonで/var/log/roiagent.logに出力するため）
+	log.SetOutput(os.Stdout)
+	
 	if len(os.Args) < 2 {
 		fmt.Println("ROI Agent Data Sender - Enhanced with 10-minute intervals")
 		fmt.Println("")
