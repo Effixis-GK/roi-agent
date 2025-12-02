@@ -12,13 +12,15 @@ func main() {
 	log.SetOutput(os.Stdout)
 	
 	if len(os.Args) < 2 {
-		fmt.Println("ROI Agent Data Sender - Enhanced with remote configuration")
+		fmt.Println("ROI Agent Data Sender - Enhanced with remote configuration & auto-update")
 		fmt.Println("")
 		fmt.Println("Usage:")
 		fmt.Println("  data-sender process                 # Process and send current interval data")
 		fmt.Println("  data-sender register                # Send initial registration (device info + version)")
 		fmt.Println("  data-sender fetch-config            # Fetch remote configuration from server")
 		fmt.Println("  data-sender show-config             # Show current remote configuration")
+		fmt.Println("  data-sender check-update            # Check for available updates")
+		fmt.Println("  data-sender update                  # Check and install updates if available")
 		fmt.Println("  data-sender test                    # Test configuration and connection")
 		fmt.Println("  data-sender status                  # Show current status and configuration")
 		fmt.Println("  data-sender logs [limit]            # Show recent transmission logs (default: 10)")
@@ -29,6 +31,8 @@ func main() {
 		fmt.Println("Examples:")
 		fmt.Println("  data-sender process                 # Send data for the current interval")
 		fmt.Println("  data-sender fetch-config            # Fetch latest remote config")
+		fmt.Println("  data-sender check-update            # Check if a new version is available")
+		fmt.Println("  data-sender update                  # Install available updates")
 		fmt.Println("  data-sender register                # Register device immediately after install")
 		fmt.Println("  data-sender test                    # Test if data transmission works")
 		fmt.Println("  data-sender logs 20                 # Show last 20 transmission attempts")
@@ -59,6 +63,10 @@ func main() {
 		sender.FetchAndShowRemoteConfig()
 	case "show-config":
 		sender.ShowRemoteConfig()
+	case "check-update":
+		sender.CheckForUpdate()
+	case "update":
+		sender.CheckAndInstallUpdate()
 	case "test":
 		sender.TestConnection()
 	case "status":

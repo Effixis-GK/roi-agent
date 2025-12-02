@@ -26,6 +26,13 @@ type RemoteConfig struct {
 	DetailLevel           string   `json:"detail_level"`
 	SampleRateSeconds     int      `json:"sample_rate_seconds"`
 	Commands              []RemoteCommand `json:"commands,omitempty"`
+	
+	// Auto-update information
+	LatestAgentVersion    string   `json:"latest_agent_version,omitempty"`
+	UpdateURL             string   `json:"update_url,omitempty"`
+	UpdateChecksum        string   `json:"update_checksum,omitempty"`
+	UpdateRequired        bool     `json:"update_required,omitempty"`
+	UpdateMode            string   `json:"update_mode,omitempty"` // "auto", "notify", "disabled"
 }
 
 // RemoteCommand represents a command from the server

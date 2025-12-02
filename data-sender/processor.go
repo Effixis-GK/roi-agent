@@ -89,6 +89,14 @@ func (ds *DataSender) CheckAndApplyRemoteConfig() {
 			
 			// Execute any pending commands
 			ds.configPoller.ExecuteCommands()
+			
+			// Check for updates (auto-update when new version detected)
+			if remoteConfig.LatestAgentVersion != "" && remoteConfig.UpdateMode != "disabled" {
+				updater := NewAutoUpdater(&ds.config)
+				if err := updater.CheckAndUpdate(remoteConfig); err != nil {
+					log.Printf("Auto-update error: %v", err)
+				}
+			}
 		}
 	}
 }
@@ -599,4 +607,98 @@ func (ds *DataSender) SendInitialRegistration() error {
 	}
 
 	return fmt.Errorf("initial registration failed after %d attempts: %v", maxRetries+1, lastErr)
+}
+
+// CheckForUpdate checks if an update is available
+func (ds *DataSender) CheckForUpdate() {
+	fmt.Println("🔍 Checking for updates...")
+	fmt.Println("")
+
+	// Get current version
+	currentVersion := GetAgentVersion()
+	fmt.Printf("Current version: %s\n", currentVersion)
+
+	// Fetch remote config to get latest version info
+	if ds.configPoller == nil {
+		fmt.Println("❌ Remote config poller not initialized")
+		return
+	}
+
+	remoteConfig, err := ds.configPoller.FetchConfig()
+	if err != nil {
+		fmt.Printf("❌ Error fetching remote config: %v\n", err)
+		return
+	}
+
+	if remoteConfig == nil || remoteConfig.LatestAgentVersion == "" {
+		fmt.Println("ℹ️  No update information available from server")
+		return
+	}
+
+	fmt.Printf("Latest version: %s\n", remoteConfig.LatestAgentVersion)
+	fmt.Printf("Update mode: %s\n", remoteConfig.UpdateMode)
+	fmt.Println("")
+
+	// Check if update is available
+	if currentVersion == remoteConfig.LatestAgentVersion {
+		fmt.Println("✅ You are running the latest version!")
+		return
+	}
+
+	if currentVersion == "dev" {
+		fmt.Println("ℹ️  Running development build - updates skipped")
+		return
+	}
+
+	fmt.Println("📦 Update available!")
+	if remoteConfig.UpdateRequired {
+		fmt.Println("⚠️  This is a REQUIRED update")
+	}
+	if remoteConfig.UpdateURL != "" {
+		fmt.Printf("Download URL: %s\n", remoteConfig.UpdateURL)
+	}
+	fmt.Println("")
+	fmt.Println("Run 'data-sender update' to install the update")
+}
+
+// CheckAndInstallUpdate checks for and installs updates
+func (ds *DataSender) CheckAndInstallUpdate() {
+	fmt.Println("🔄 Checking and installing updates...")
+	fmt.Println("")
+
+	// Fetch remote config
+	if ds.configPoller == nil {
+		fmt.Println("❌ Remote config poller not initialized")
+		return
+	}
+
+	remoteConfig, err := ds.configPoller.FetchConfig()
+	if err != nil {
+		fmt.Printf("❌ Error fetching remote config: %v\n", err)
+		return
+	}
+
+	if remoteConfig == nil {
+		fmt.Println("❌ No remote configuration available")
+		return
+	}
+
+	// Create auto updater
+	updater := NewAutoUpdater(&ds.config)
+	currentVersion := updater.GetCurrentVersion()
+
+	fmt.Printf("Current version: %s\n", currentVersion)
+
+	if remoteConfig.LatestAgentVersion != "" {
+		fmt.Printf("Latest version: %s\n", remoteConfig.LatestAgentVersion)
+	}
+
+	// Check and install update
+	err = updater.CheckAndUpdate(remoteConfig)
+	if err != nil {
+		fmt.Printf("❌ Update failed: %v\n", err)
+		return
+	}
+
+	fmt.Println("✅ Update check completed")
 }
