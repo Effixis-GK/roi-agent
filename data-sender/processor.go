@@ -179,6 +179,7 @@ func (ds *DataSender) printRemoteConfig(config *RemoteConfig) {
 			fmt.Printf("    - %s\n", domain)
 		}
 	}
+}
 
 // processCurrentInterval processes and sends data for the current interval
 func (ds *DataSender) processCurrentInterval() error {
