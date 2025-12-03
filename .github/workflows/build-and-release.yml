@@ -47,8 +47,8 @@ jobs:
       
       - name: Install dependencies
         run: |
-          cd agent && go mod download
-          cd ../data-sender && go mod download
+          # agent has no external dependencies, skip go mod download
+          cd data-sender && go mod download
       
       - name: Build binaries
         run: |
