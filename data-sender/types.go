@@ -24,22 +24,64 @@ type NetworkData struct {
 
 // SystemMetricsData represents system-wide performance metrics for transmission
 type SystemMetricsData struct {
-	Timestamp           string  `json:"timestamp"`
-	CPUPercent          float64 `json:"cpu_percent"`
-	MemoryUsedMB        int64   `json:"memory_used_mb"`
-	MemoryTotalMB       int64   `json:"memory_total_mb"`
-	MemoryPercent       float64 `json:"memory_percent"`
-	DiskReadMBps        float64 `json:"disk_read_mbps"`
-	DiskWriteMBps       float64 `json:"disk_write_mbps"`
-	DiskReadOps         int64   `json:"disk_read_ops"`
-	DiskWriteOps        int64   `json:"disk_write_ops"`
-	BatteryLevel        int     `json:"battery_level,omitempty"`
-	BatteryCharging     bool    `json:"battery_charging,omitempty"`
-	BatteryTimeRemaining int    `json:"battery_time_remaining,omitempty"`
-	IdleTimeSec         int64   `json:"idle_time_sec"`
-	ScreenLocked        bool    `json:"screen_locked"`
-	ProcessCount        int     `json:"process_count"`
-	SystemUptimeSec     int64   `json:"system_uptime_sec"`
+	Timestamp            string  `json:"timestamp"`
+	CPUPercent           float64 `json:"cpu_percent"`
+	MemoryUsedMB         int64   `json:"memory_used_mb"`
+	MemoryTotalMB        int64   `json:"memory_total_mb"`
+	MemoryPercent        float64 `json:"memory_percent"`
+	DiskReadMBps         float64 `json:"disk_read_mbps"`
+	DiskWriteMBps        float64 `json:"disk_write_mbps"`
+	DiskReadOps          int64   `json:"disk_read_ops"`
+	DiskWriteOps         int64   `json:"disk_write_ops"`
+	BatteryLevel         int     `json:"battery_level,omitempty"`
+	BatteryCharging      bool    `json:"battery_charging,omitempty"`
+	BatteryTimeRemaining int     `json:"battery_time_remaining,omitempty"`
+	IdleTimeSec          int64   `json:"idle_time_sec"`
+	ScreenLocked         bool    `json:"screen_locked"`
+	ProcessCount         int     `json:"process_count"`
+	SystemUptimeSec      int64   `json:"system_uptime_sec"`
+	// New metrics from datadog-agent
+	Load1              float64 `json:"load_1,omitempty"`
+	Load5              float64 `json:"load_5,omitempty"`
+	Load15             float64 `json:"load_15,omitempty"`
+	LoadNorm1          float64 `json:"load_norm_1,omitempty"`
+	LoadNorm5          float64 `json:"load_norm_5,omitempty"`
+	LoadNorm15         float64 `json:"load_norm_15,omitempty"`
+	SwapUsedMB         int64   `json:"swap_used_mb,omitempty"`
+	SwapTotalMB        int64   `json:"swap_total_mb,omitempty"`
+	SwapPercent        float64 `json:"swap_percent,omitempty"`
+	MemoryPressure     string  `json:"memory_pressure,omitempty"`
+	NetBytesRecv       uint64  `json:"net_bytes_recv,omitempty"`
+	NetBytesSent       uint64  `json:"net_bytes_sent,omitempty"`
+	NetPacketsRecv     uint64  `json:"net_packets_recv,omitempty"`
+	NetPacketsSent     uint64  `json:"net_packets_sent,omitempty"`
+	NetErrorsIn        uint64  `json:"net_errors_in,omitempty"`
+	NetErrorsOut       uint64  `json:"net_errors_out,omitempty"`
+	WiFiSSID           string  `json:"wifi_ssid,omitempty"`
+	WiFiRSSI           int     `json:"wifi_rssi,omitempty"`
+	WiFiNoise          int     `json:"wifi_noise,omitempty"`
+	WiFiChannel        int     `json:"wifi_channel,omitempty"`
+	WiFiTransmitRate   float64 `json:"wifi_transmit_rate,omitempty"`
+	WiFiPHYMode        string  `json:"wifi_phy_mode,omitempty"`
+	WiFiSignalQuality  string  `json:"wifi_signal_quality,omitempty"`
+	TCPEstablished     int     `json:"tcp_established,omitempty"`
+	TCPTimeWait        int     `json:"tcp_time_wait,omitempty"`
+	TCPCloseWait       int     `json:"tcp_close_wait,omitempty"`
+	// Additional metrics - Phase 2
+	DiskUsedPercent    float64 `json:"disk_used_percent,omitempty"`
+	DiskFreeGB         float64 `json:"disk_free_gb,omitempty"`
+	DiskTotalGB        float64 `json:"disk_total_gb,omitempty"`
+	DiskHealth         string  `json:"disk_health,omitempty"`
+	OpenFileHandles    int64   `json:"open_file_handles,omitempty"`
+	MaxFileHandles     int64   `json:"max_file_handles,omitempty"`
+	ExternalDisplays   int     `json:"external_displays,omitempty"`
+	TotalDisplays      int     `json:"total_displays,omitempty"`
+	BluetoothDevices   int     `json:"bluetooth_devices,omitempty"`
+	MeetingActive      bool    `json:"meeting_active,omitempty"`
+	CameraInUse        bool    `json:"camera_in_use,omitempty"`
+	MicrophoneInUse    bool    `json:"microphone_in_use,omitempty"`
+	BrowserTabs        int     `json:"browser_tabs,omitempty"`
+	FocusScore         float64 `json:"focus_score,omitempty"`
 }
 
 // ProcessMetricsData represents per-process CPU and memory metrics for transmission
@@ -106,22 +148,64 @@ type CombinedData struct {
 
 // SystemMetricsLocal represents system metrics in local storage (with time.Time)
 type SystemMetricsLocal struct {
-	Timestamp          time.Time `json:"timestamp"`
-	CPUPercent         float64   `json:"cpu_percent"`
-	MemoryUsedMB       int64     `json:"memory_used_mb"`
-	MemoryTotalMB      int64     `json:"memory_total_mb"`
-	MemoryPercent      float64   `json:"memory_percent"`
-	DiskReadMBps       float64   `json:"disk_read_mbps"`
-	DiskWriteMBps      float64   `json:"disk_write_mbps"`
-	DiskReadOps        int64     `json:"disk_read_ops"`
-	DiskWriteOps       int64     `json:"disk_write_ops"`
-	BatteryLevel       int       `json:"battery_level,omitempty"`
-	BatteryCharging    bool      `json:"battery_charging,omitempty"`
-	BatteryTimeRemaining int    `json:"battery_time_remaining,omitempty"`
-	IdleTimeSec        int64     `json:"idle_time_sec"`
-	ScreenLocked       bool      `json:"screen_locked"`
-	ProcessCount       int       `json:"process_count"`
-	SystemUptimeSec     int64     `json:"system_uptime_sec"`
+	Timestamp            time.Time `json:"timestamp"`
+	CPUPercent           float64   `json:"cpu_percent"`
+	MemoryUsedMB         int64     `json:"memory_used_mb"`
+	MemoryTotalMB        int64     `json:"memory_total_mb"`
+	MemoryPercent        float64   `json:"memory_percent"`
+	DiskReadMBps         float64   `json:"disk_read_mbps"`
+	DiskWriteMBps        float64   `json:"disk_write_mbps"`
+	DiskReadOps          int64     `json:"disk_read_ops"`
+	DiskWriteOps         int64     `json:"disk_write_ops"`
+	BatteryLevel         int       `json:"battery_level,omitempty"`
+	BatteryCharging      bool      `json:"battery_charging,omitempty"`
+	BatteryTimeRemaining int       `json:"battery_time_remaining,omitempty"`
+	IdleTimeSec          int64     `json:"idle_time_sec"`
+	ScreenLocked         bool      `json:"screen_locked"`
+	ProcessCount         int       `json:"process_count"`
+	SystemUptimeSec      int64     `json:"system_uptime_sec"`
+	// New metrics from datadog-agent
+	Load1              float64 `json:"load_1,omitempty"`
+	Load5              float64 `json:"load_5,omitempty"`
+	Load15             float64 `json:"load_15,omitempty"`
+	LoadNorm1          float64 `json:"load_norm_1,omitempty"`
+	LoadNorm5          float64 `json:"load_norm_5,omitempty"`
+	LoadNorm15         float64 `json:"load_norm_15,omitempty"`
+	SwapUsedMB         int64   `json:"swap_used_mb,omitempty"`
+	SwapTotalMB        int64   `json:"swap_total_mb,omitempty"`
+	SwapPercent        float64 `json:"swap_percent,omitempty"`
+	MemoryPressure     string  `json:"memory_pressure,omitempty"`
+	NetBytesRecv       uint64  `json:"net_bytes_recv,omitempty"`
+	NetBytesSent       uint64  `json:"net_bytes_sent,omitempty"`
+	NetPacketsRecv     uint64  `json:"net_packets_recv,omitempty"`
+	NetPacketsSent     uint64  `json:"net_packets_sent,omitempty"`
+	NetErrorsIn        uint64  `json:"net_errors_in,omitempty"`
+	NetErrorsOut       uint64  `json:"net_errors_out,omitempty"`
+	WiFiSSID           string  `json:"wifi_ssid,omitempty"`
+	WiFiRSSI           int     `json:"wifi_rssi,omitempty"`
+	WiFiNoise          int     `json:"wifi_noise,omitempty"`
+	WiFiChannel        int     `json:"wifi_channel,omitempty"`
+	WiFiTransmitRate   float64 `json:"wifi_transmit_rate,omitempty"`
+	WiFiPHYMode        string  `json:"wifi_phy_mode,omitempty"`
+	WiFiSignalQuality  string  `json:"wifi_signal_quality,omitempty"`
+	TCPEstablished     int     `json:"tcp_established,omitempty"`
+	TCPTimeWait        int     `json:"tcp_time_wait,omitempty"`
+	TCPCloseWait       int     `json:"tcp_close_wait,omitempty"`
+	// Additional metrics - Phase 2
+	DiskUsedPercent    float64 `json:"disk_used_percent,omitempty"`
+	DiskFreeGB         float64 `json:"disk_free_gb,omitempty"`
+	DiskTotalGB        float64 `json:"disk_total_gb,omitempty"`
+	DiskHealth         string  `json:"disk_health,omitempty"`
+	OpenFileHandles    int64   `json:"open_file_handles,omitempty"`
+	MaxFileHandles     int64   `json:"max_file_handles,omitempty"`
+	ExternalDisplays   int     `json:"external_displays,omitempty"`
+	TotalDisplays      int     `json:"total_displays,omitempty"`
+	BluetoothDevices   int     `json:"bluetooth_devices,omitempty"`
+	MeetingActive      bool    `json:"meeting_active,omitempty"`
+	CameraInUse        bool    `json:"camera_in_use,omitempty"`
+	MicrophoneInUse    bool    `json:"microphone_in_use,omitempty"`
+	BrowserTabs        int     `json:"browser_tabs,omitempty"`
+	FocusScore         float64 `json:"focus_score,omitempty"`
 }
 
 // ProcessMetricsLocal represents process metrics in local storage (with time.Time)
