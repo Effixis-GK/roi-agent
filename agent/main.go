@@ -1857,7 +1857,24 @@ func (a *Agent) loadRemoteConfigCache() *RemoteConfigCache {
 		filepath.Join(os.Getenv("HOME"), ".roiagent", "remote_config.json"),
 	}
 
+	// Also scan /Users/* for user home directories (macOS specific)
+	// This is needed because data-sender runs as the logged-in user
+	// while roi-agent runs as root via LaunchDaemon
+	userDirs, err := filepath.Glob("/Users/*/.roiagent/remote_config.json")
+	if err == nil {
+		possiblePaths = append(possiblePaths, userDirs...)
+	}
+
+	// Find the most recently modified cache file
+	var bestCache *RemoteConfigCache
+	var bestModTime time.Time
+
 	for _, cachePath := range possiblePaths {
+		info, err := os.Stat(cachePath)
+		if err != nil {
+			continue
+		}
+
 		data, err := ioutil.ReadFile(cachePath)
 		if err != nil {
 			continue
@@ -1865,14 +1882,18 @@ func (a *Agent) loadRemoteConfigCache() *RemoteConfigCache {
 
 		var cache RemoteConfigCache
 		if err := json.Unmarshal(data, &cache); err != nil {
-			log.Printf("Error parsing remote config cache: %v", err)
+			log.Printf("Error parsing remote config cache at %s: %v", cachePath, err)
 			continue
 		}
 
-		return &cache
+		// Use the most recently modified file
+		if bestCache == nil || info.ModTime().After(bestModTime) {
+			bestCache = &cache
+			bestModTime = info.ModTime()
+		}
 	}
 
-	return nil
+	return bestCache
 }
 
 // updateTransmissionIntervalFromRemoteConfig checks and updates the transmission interval
