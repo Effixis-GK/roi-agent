@@ -58,10 +58,22 @@ type ConfigPoller struct {
 	onConfigChange  func(*RemoteConfig)
 }
 
+// SharedConfigDir is the shared directory for agent configuration
+// This directory is accessible by both roi-agent (root) and data-sender (user)
+const SharedConfigDir = "/var/lib/roiagent"
+
 // NewConfigPoller creates a new configuration poller
 func NewConfigPoller(config *Config) *ConfigPoller {
-	homeDir, _ := os.UserHomeDir()
-	localConfigPath := filepath.Join(homeDir, ".roiagent", "remote_config.json")
+	// Use shared directory for config (accessible by both root and user processes)
+	localConfigPath := filepath.Join(SharedConfigDir, "remote_config.json")
+
+	// Ensure the shared directory exists with proper permissions
+	if err := os.MkdirAll(SharedConfigDir, 0755); err != nil {
+		// If we can't create the shared dir (no root), fall back to user home
+		homeDir, _ := os.UserHomeDir()
+		localConfigPath = filepath.Join(homeDir, ".roiagent", "remote_config.json")
+		log.Printf("Using fallback config path: %s (shared dir not writable)", localConfigPath)
+	}
 
 	poller := &ConfigPoller{
 		config:          config,

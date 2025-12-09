@@ -1,0 +1,201 @@
+name: Release ROI Agent
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # v1.4.0 などのタグでトリガー
+  workflow_dispatch:  # 手動実行も可能
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.4.0)'
+        required: true
+        type: string
+
+env:
+  GCS_BUCKET: roi-agent-releases
+  GCP_PROJECT: teak-frame-465410-a0
+  CLOUDSQL_INSTANCE: roi-production
+  CLOUDSQL_CONNECTION: teak-frame-465410-a0:asia-northeast1:roi-production
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION"
+
+      - name: Update VERSION file
+        run: |
+          echo "${{ steps.version.outputs.VERSION }}" > VERSION
+          cat VERSION
+
+      - name: Build macOS binaries
+        run: |
+          mkdir -p build/macos-arm64 build/macos-amd64
+          
+          # Build agent
+          cd agent
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../build/macos-arm64/roi-agent .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../build/macos-amd64/roi-agent .
+          
+          # Build data-sender
+          cd ../data-sender
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../build/macos-arm64/data-sender .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../build/macos-amd64/data-sender .
+          
+          cd ..
+          ls -lh build/macos-arm64/
+          ls -lh build/macos-amd64/
+
+      - name: Create PKG files
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          # Prepare payloads
+          mkdir -p build/payload-arm64/Applications/ROI\ Agent/{bin,Resources}
+          mkdir -p build/payload-amd64/Applications/ROI\ Agent/{bin,Resources}
+          
+          # Copy arm64 files
+          cp build/macos-arm64/roi-agent "build/payload-arm64/Applications/ROI Agent/bin/"
+          cp build/macos-arm64/data-sender "build/payload-arm64/Applications/ROI Agent/bin/"
+          echo "$VERSION" > "build/payload-arm64/Applications/ROI Agent/Resources/VERSION"
+          
+          # Copy amd64 files
+          cp build/macos-amd64/roi-agent "build/payload-amd64/Applications/ROI Agent/bin/"
+          cp build/macos-amd64/data-sender "build/payload-amd64/Applications/ROI Agent/bin/"
+          echo "$VERSION" > "build/payload-amd64/Applications/ROI Agent/Resources/VERSION"
+          
+          # Build PKGs
+          pkgbuild --root build/payload-arm64 \
+                   --identifier "com.roiagent.monitor" \
+                   --version "$VERSION" \
+                   --install-location "/" \
+                   build/ROI-Agent-macOS-arm64.pkg
+          
+          pkgbuild --root build/payload-amd64 \
+                   --identifier "com.roiagent.monitor" \
+                   --version "$VERSION" \
+                   --install-location "/" \
+                   build/ROI-Agent-macOS-x64.pkg
+          
+          ls -lh build/*.pkg
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Upload to GCS
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          # Upload to latest/
+          gsutil cp build/ROI-Agent-macOS-arm64.pkg "gs://${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg"
+          gsutil cp build/ROI-Agent-macOS-x64.pkg "gs://${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg"
+          
+          # Upload to versions/
+          gsutil cp build/ROI-Agent-macOS-arm64.pkg "gs://${GCS_BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-arm64.pkg"
+          gsutil cp build/ROI-Agent-macOS-x64.pkg "gs://${GCS_BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-x64.pkg"
+          
+          echo "✅ Uploaded to GCS"
+
+      - name: Install PostgreSQL client
+        run: |
+          brew install postgresql@15
+          echo "/opt/homebrew/opt/postgresql@15/bin" >> $GITHUB_PATH
+
+      - name: Update CloudSQL via Cloud SQL Proxy
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          # Download Cloud SQL Proxy
+          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.darwin.arm64
+          chmod +x cloud-sql-proxy
+          
+          # Start Cloud SQL Proxy in background
+          ./cloud-sql-proxy --port 5432 "${CLOUDSQL_CONNECTION}" &
+          PROXY_PID=$!
+          
+          # Wait for proxy to be ready
+          sleep 10
+          
+          # Execute SQL
+          PGPASSWORD="${{ secrets.CLOUDSQL_PASSWORD }}" psql \
+            -h localhost \
+            -p 5432 \
+            -U admin \
+            -d postgres \
+            -c "
+            INSERT INTO agent_releases (
+                version,
+                macos_arm64_url,
+                macos_amd64_url,
+                is_latest,
+                release_notes,
+                published_at
+            ) VALUES (
+                '${VERSION}',
+                'https://storage.googleapis.com/${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg',
+                'https://storage.googleapis.com/${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg',
+                TRUE,
+                'Release ${VERSION}',
+                CURRENT_TIMESTAMP
+            ) ON CONFLICT (version) DO UPDATE SET 
+                is_latest = TRUE,
+                macos_arm64_url = EXCLUDED.macos_arm64_url,
+                macos_amd64_url = EXCLUDED.macos_amd64_url,
+                published_at = CURRENT_TIMESTAMP;
+            
+            UPDATE agent_releases SET is_latest = false WHERE version != '${VERSION}';
+            "
+          
+          # Stop proxy
+          kill $PROXY_PID
+          
+          echo "✅ CloudSQL updated"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/ROI-Agent-macOS-arm64.pkg
+            build/ROI-Agent-macOS-x64.pkg
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify success
+        if: success()
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "🎉 Release $VERSION completed successfully!"
+          echo "📦 PKG files uploaded to GCS"
+          echo "🗄️  CloudSQL updated"
+          echo "📝 GitHub Release created"
+
