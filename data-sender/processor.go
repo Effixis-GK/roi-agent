@@ -527,6 +527,10 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 			MicrophoneInUse:    metric.MicrophoneInUse,
 			BrowserTabs:        metric.BrowserTabs,
 			FocusScore:         metric.FocusScore,
+			// New fields for DB compatibility
+			MeetingStatus:   metric.MeetingStatus,
+			UserActive:      metric.UserActive,
+			BrowserTabCount: metric.BrowserTabCount,
 		}
 		// Only include battery fields if they are set (non-zero or true)
 		if metric.BatteryLevel > 0 {

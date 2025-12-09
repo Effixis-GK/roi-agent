@@ -109,6 +109,10 @@ type SystemMetrics struct {
 	MicrophoneInUse    bool    `json:"microphone_in_use,omitempty"`
 	BrowserTabs        int     `json:"browser_tabs,omitempty"`
 	FocusScore         float64 `json:"focus_score,omitempty"`
+	// New fields for DB compatibility
+	MeetingStatus    string `json:"meeting_status,omitempty"`    // "zoom", "teams", "slack_huddle", "google_meet", "idle"
+	UserActive       bool   `json:"user_active,omitempty"`       // true if idle_time_sec < 300
+	BrowserTabCount  int    `json:"browser_tab_count,omitempty"` // Total browser tabs
 }
 
 // ProcessMetrics represents per-process CPU and memory metrics
@@ -673,12 +677,18 @@ func (a *Agent) collectSystemMetrics() *SystemMetrics {
 		metrics.CameraInUse = activity.CameraInUse
 		metrics.MicrophoneInUse = activity.MicrophoneInUse
 		metrics.FocusScore = activity.FocusScore
+		// Set meeting status based on which app is active
+		metrics.MeetingStatus = activity.MeetingApp
 	}
 
 	// Get browser tabs count
 	if tabs, err := a.getBrowserTabs(); err == nil {
 		metrics.BrowserTabs = tabs
+		metrics.BrowserTabCount = tabs // For DB compatibility
 	}
+
+	// Set UserActive based on idle time (active if idle < 5 minutes)
+	metrics.UserActive = metrics.IdleTimeSec < 300
 
 	return metrics
 }
@@ -1035,22 +1045,53 @@ func (a *Agent) getSwapUsage() (*SwapMetrics, error) {
 		metrics.Percent = float64(metrics.UsedMB) / float64(metrics.TotalMB) * 100
 	}
 
-	// Get memory pressure
-	pressureCmd := exec.Command("memory_pressure")
+	// Get memory pressure using sysctl (more reliable than memory_pressure command)
+	pressureCmd := exec.Command("sysctl", "-n", "kern.memorystatus_vm_pressure_level")
 	pressureOutput, err := pressureCmd.Output()
 	if err == nil {
-		pressureStr := strings.ToLower(string(pressureOutput))
-		if strings.Contains(pressureStr, "critical") {
-			metrics.Pressure = "critical"
-		} else if strings.Contains(pressureStr, "warning") {
-			metrics.Pressure = "warning"
-		} else if strings.Contains(pressureStr, "normal") {
+		level := strings.TrimSpace(string(pressureOutput))
+		switch level {
+		case "1":
 			metrics.Pressure = "normal"
-		} else {
-			metrics.Pressure = "unknown"
+		case "2":
+			metrics.Pressure = "warning"
+		case "4":
+			metrics.Pressure = "critical"
+		default:
+			// Fallback: try memory_pressure command
+			mpCmd := exec.Command("memory_pressure")
+			mpOutput, mpErr := mpCmd.Output()
+			if mpErr == nil {
+				mpStr := strings.ToLower(string(mpOutput))
+				if strings.Contains(mpStr, "critical") {
+					metrics.Pressure = "critical"
+				} else if strings.Contains(mpStr, "warn") {
+					metrics.Pressure = "warning"
+				} else if strings.Contains(mpStr, "normal") {
+					metrics.Pressure = "normal"
+				} else {
+					metrics.Pressure = "normal" // Default to normal if parsing fails
+				}
+			} else {
+				metrics.Pressure = "normal"
+			}
 		}
 	} else {
-		metrics.Pressure = "unknown"
+		// Fallback to memory_pressure command
+		mpCmd := exec.Command("memory_pressure")
+		mpOutput, mpErr := mpCmd.Output()
+		if mpErr == nil {
+			mpStr := strings.ToLower(string(mpOutput))
+			if strings.Contains(mpStr, "critical") {
+				metrics.Pressure = "critical"
+			} else if strings.Contains(mpStr, "warn") {
+				metrics.Pressure = "warning"
+			} else {
+				metrics.Pressure = "normal"
+			}
+		} else {
+			metrics.Pressure = "normal"
+		}
 	}
 
 	return metrics, nil
@@ -1161,64 +1202,71 @@ type WiFiInfo struct {
 func (a *Agent) getWiFiInfo() (*WiFiInfo, error) {
 	info := &WiFiInfo{}
 
-	// Try using system_profiler (works on all macOS versions)
-	cmd := exec.Command("system_profiler", "SPAirPortDataType", "-json")
+	// Try using system_profiler with text output (more reliable parsing)
+	cmd := exec.Command("system_profiler", "SPAirPortDataType")
 	output, err := cmd.Output()
 	if err != nil {
-		// Fallback to networksetup for basic info
 		return a.getWiFiInfoFallback()
 	}
 
-	// Parse JSON output
-	var data map[string]interface{}
-	if err := json.Unmarshal(output, &data); err != nil {
-		return a.getWiFiInfoFallback()
-	}
+	lines := strings.Split(string(output), "\n")
+	inCurrentNetwork := false
 
-	// Navigate the JSON structure
-	if spAirPort, ok := data["SPAirPortDataType"].([]interface{}); ok {
-		for _, item := range spAirPort {
-			if itemMap, ok := item.(map[string]interface{}); ok {
-				// Look for current network info
-				if interfaces, ok := itemMap["spairport_airport_interfaces"].([]interface{}); ok {
-					for _, iface := range interfaces {
-						if ifaceMap, ok := iface.(map[string]interface{}); ok {
-							// Get current network
-							if currentNet, ok := ifaceMap["spairport_current_network_information"].(map[string]interface{}); ok {
-								if ssid, ok := currentNet["_name"].(string); ok {
-									info.SSID = ssid
-								}
-								if channel, ok := currentNet["spairport_network_channel"].(string); ok {
-									// Parse channel like "36 (5GHz, 80MHz)"
-									parts := strings.Split(channel, " ")
-									if len(parts) > 0 {
-										info.Channel, _ = strconv.Atoi(parts[0])
-									}
-								}
-								if phyMode, ok := currentNet["spairport_network_phymode"].(string); ok {
-									info.PHYMode = phyMode
-								}
-								if rssi, ok := currentNet["spairport_signal_noise"].(string); ok {
-									// Parse "RSSI -XX / Noise -XX"
-									parts := strings.Split(rssi, "/")
-									if len(parts) >= 1 {
-										rssiPart := strings.TrimSpace(parts[0])
-										rssiPart = strings.TrimPrefix(rssiPart, "RSSI ")
-										info.RSSI, _ = strconv.Atoi(rssiPart)
-									}
-									if len(parts) >= 2 {
-										noisePart := strings.TrimSpace(parts[1])
-										noisePart = strings.TrimPrefix(noisePart, "Noise ")
-										info.Noise, _ = strconv.Atoi(noisePart)
-									}
-								}
-								if txRate, ok := currentNet["spairport_network_rate"].(float64); ok {
-									info.TransmitRate = txRate
-								}
-							}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Look for "Current Network Information:" section
+		if strings.Contains(trimmed, "Current Network Information:") {
+			inCurrentNetwork = true
+			continue
+		}
+
+		if inCurrentNetwork {
+			// Parse key-value pairs
+			if strings.Contains(trimmed, ":") && !strings.HasSuffix(trimmed, ":") {
+				parts := strings.SplitN(trimmed, ":", 2)
+				if len(parts) == 2 {
+					key := strings.TrimSpace(parts[0])
+					value := strings.TrimSpace(parts[1])
+
+					switch key {
+					case "PHY Mode":
+						info.PHYMode = value
+					case "Channel":
+						// Parse "36 (5GHz, 80MHz)"
+						chanParts := strings.Split(value, " ")
+						if len(chanParts) > 0 {
+							info.Channel, _ = strconv.Atoi(chanParts[0])
 						}
+					case "Signal / Noise":
+						// Parse "-55 dBm / -88 dBm"
+						snParts := strings.Split(value, "/")
+						if len(snParts) >= 1 {
+							rssiStr := strings.TrimSpace(snParts[0])
+							rssiStr = strings.TrimSuffix(rssiStr, " dBm")
+							info.RSSI, _ = strconv.Atoi(rssiStr)
+						}
+						if len(snParts) >= 2 {
+							noiseStr := strings.TrimSpace(snParts[1])
+							noiseStr = strings.TrimSuffix(noiseStr, " dBm")
+							info.Noise, _ = strconv.Atoi(noiseStr)
+						}
+					case "Transmit Rate":
+						// Parse "866 Mbps"
+						rateStr := strings.TrimSuffix(value, " Mbps")
+						info.TransmitRate, _ = strconv.ParseFloat(rateStr, 64)
 					}
 				}
+			} else if strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, " ") {
+				// This is a network name (SSID)
+				if info.SSID == "" {
+					info.SSID = strings.TrimSuffix(trimmed, ":")
+				}
+			}
+
+			// Exit current network section when we hit a blank line or new section
+			if trimmed == "" && info.SSID != "" {
+				break
 			}
 		}
 	}
@@ -1239,7 +1287,11 @@ func (a *Agent) getWiFiInfo() (*WiFiInfo, error) {
 	case info.RSSI >= -80:
 		info.SignalQuality = "Poor"
 	default:
-		info.SignalQuality = "Very Poor"
+		if info.RSSI == 0 {
+			info.SignalQuality = "Excellent" // Default if RSSI not available
+		} else {
+			info.SignalQuality = "Very Poor"
+		}
 	}
 
 	return info, nil
@@ -1472,6 +1524,7 @@ func (a *Agent) getBluetoothDevices() (int, error) {
 // UserActivity represents user activity metrics
 type UserActivity struct {
 	MeetingActive   bool
+	MeetingApp      string // "zoom", "teams", "slack", "google_meet", "facetime", "webex", "idle"
 	CameraInUse     bool
 	MicrophoneInUse bool
 	FocusScore      float64
@@ -1480,11 +1533,23 @@ type UserActivity struct {
 // getUserActivity gets user activity metrics
 func (a *Agent) getUserActivity() (*UserActivity, error) {
 	activity := &UserActivity{
-		FocusScore: 80.0, // Default focus score
+		FocusScore: 80.0,    // Default focus score
+		MeetingApp: "idle",  // Default status
 	}
 
-	// Check if in a meeting
-	meetingApps := []string{"zoom.us", "Zoom", "Microsoft Teams", "Slack", "Google Meet", "FaceTime", "Webex"}
+	// Meeting apps with their status names
+	meetingApps := map[string]string{
+		"zoom.us":         "zoom",
+		"zoom":            "zoom",
+		"microsoft teams": "teams",
+		"teams":           "teams",
+		"slack":           "slack",
+		"google meet":     "google_meet",
+		"facetime":        "facetime",
+		"webex":           "webex",
+		"cisco webex":     "webex",
+	}
+
 	cmd := exec.Command("osascript", "-e", `
 		tell application "System Events"
 			set appList to name of every application process whose background only is false
@@ -1496,12 +1561,16 @@ func (a *Agent) getUserActivity() (*UserActivity, error) {
 	if err == nil {
 		apps := strings.Split(strings.TrimSpace(string(output)), "|")
 		for _, app := range apps {
-			app = strings.TrimSpace(app)
-			for _, meetingApp := range meetingApps {
-				if strings.Contains(strings.ToLower(app), strings.ToLower(meetingApp)) {
+			appLower := strings.ToLower(strings.TrimSpace(app))
+			for meetingApp, status := range meetingApps {
+				if strings.Contains(appLower, meetingApp) {
 					activity.MeetingActive = true
+					activity.MeetingApp = status
 					break
 				}
+			}
+			if activity.MeetingActive {
+				break
 			}
 		}
 	}
