@@ -95,6 +95,10 @@ SUPPORT:
 EOF
 echo "  ✅ README.txt"
 
+# 4.5 VERSION file (used by data-sender to report agent version)
+echo "$VERSION" > "$RESOURCES_DIR/VERSION"
+echo "  ✅ VERSION ($VERSION)"
+
 # 5. LaunchDaemon plist (Resourcesに配置してpostinstallでコピー)
 cat > "$RESOURCES_DIR/com.roiagent.daemon.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
