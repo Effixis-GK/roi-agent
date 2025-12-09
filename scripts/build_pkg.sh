@@ -224,9 +224,16 @@ if [ ! -f "$ENV_FILE" ]; then
     cp "/Applications/ROI Agent/Resources/.env.template" "$ENV_FILE"
 fi
 
-chmod 600 "$ENV_FILE"
+# Set readable permissions so data-sender can read when run as user
+chmod 644 "$ENV_FILE"
+chown root:staff "$ENV_FILE"
 
-echo "✅ Configuration verified"
+# Copy to shared config directory for user-level access
+SHARED_ENV_FILE="/var/lib/roiagent/.env"
+cp "$ENV_FILE" "$SHARED_ENV_FILE"
+chmod 644 "$SHARED_ENV_FILE"
+
+echo "✅ Configuration verified (readable by all users)"
 
 # LaunchDaemonのplistファイルをコピー
 SOURCE_PLIST="/Applications/ROI Agent/Resources/com.roiagent.daemon.plist"

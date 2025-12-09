@@ -254,10 +254,11 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # .envが存在する場合（installer scriptから実行された場合）
-chmod 600 "$ENV_FILE"
+# Set readable permissions so data-sender can read when run as user
+chmod 644 "$ENV_FILE"
 chown "$CURRENT_USER:staff" "$ENV_FILE"
 
-echo "✅ Configuration found"
+echo "✅ Configuration found (readable by user)"
 
 # LaunchAgentを起動
 sudo -u "$CURRENT_USER" launchctl bootstrap "gui/$USER_ID" "$PLIST_DST" 2>/dev/null || true

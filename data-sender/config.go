@@ -47,9 +47,9 @@ func (ds *DataSender) loadConfig() {
 func (ds *DataSender) tryLoadYAMLConfig() bool {
 	// Try multiple locations for config.yaml
 	configPaths := []string{
-		"config.yaml",                                    // Current directory
-		"../Resources/config.yaml",                      // .app bundle Resources
-		"../../Resources/config.yaml",                   // From MacOS folder
+		"config.yaml",                 // Current directory
+		"../Resources/config.yaml",    // .app bundle Resources
+		"../../Resources/config.yaml", // From MacOS folder
 		filepath.Join(os.Getenv("HOME"), ".roiagent", "config.yaml"), // Home directory
 	}
 
@@ -75,37 +75,57 @@ func (ds *DataSender) tryLoadYAMLConfig() bool {
 
 // loadEnvConfig loads configuration from .env file
 func (ds *DataSender) loadEnvConfig() {
-	// Load .env file if it exists - try multiple locations
+	// Step 1: Load existing config from transmission_config.json first
+	// This preserves valid settings that were previously saved
+	existingConfig := ds.loadExistingConfig()
+
+	// Step 2: Load .env file if it exists - try multiple locations
 	envPaths := []string{
 		"/Applications/ROI Agent/Resources/.env", // LaunchDaemon installation (PKG)
-		".env",               // Current directory
-		"./data-sender/.env", // From project root
-		"../.env",            // Parent directory
+		"/var/lib/roiagent/.env",                 // Shared config directory (readable by all users)
+		".env",                                   // Current directory
+		"./data-sender/.env",                     // From project root
+		"../.env",                                // Parent directory
 	}
 
+	envLoaded := false
 	for _, envPath := range envPaths {
 		if err := godotenv.Load(envPath); err == nil {
 			log.Printf("Loaded .env file from: %s", envPath)
+			envLoaded = true
 			break
 		}
 	}
 
-	// Default configuration - Sample URLs/Keys
-	// For Mac App, enable by default if environment variables are set
-	enableByDefault := false
-	if os.Getenv("ROI_AGENT_BASE_URL") != "" && os.Getenv("ROI_AGENT_API_KEY") != "" {
-		enableByDefault = true
-		log.Printf("Environment variables detected - enabling data transmission")
-	}
+	// Step 3: Determine configuration with proper priority
+	// Priority: Environment variables > .env file > existing config > defaults
 
+	// Start with defaults
 	ds.config = Config{
 		BaseURL:  "https://api.sample-server.com/v1/roi-agent-sample",
 		APIKey:   "sample-api-key-replace-with-actual",
-		DeviceID: ds.getOrGenerateDeviceID(), // ← 修正：永続的なdevice_IDを使用
-		Enabled:  enableByDefault,
+		DeviceID: "",
+		Enabled:  false,
 	}
 
-	// Override with environment variables if available
+	// Apply existing config if valid (non-empty and non-sample values)
+	if existingConfig != nil {
+		if existingConfig.BaseURL != "" && existingConfig.BaseURL != "https://api.sample-server.com/v1/roi-agent-sample" {
+			ds.config.BaseURL = existingConfig.BaseURL
+		}
+		if existingConfig.APIKey != "" && existingConfig.APIKey != "sample-api-key-replace-with-actual" {
+			ds.config.APIKey = existingConfig.APIKey
+		}
+		if existingConfig.DeviceID != "" {
+			ds.config.DeviceID = existingConfig.DeviceID
+		}
+		// Only use existing Enabled if config has valid credentials
+		if existingConfig.Enabled && existingConfig.BaseURL != "" && existingConfig.APIKey != "" {
+			ds.config.Enabled = true
+		}
+	}
+
+	// Override with environment variables if available (highest priority)
 	if baseURL := os.Getenv("ROI_AGENT_BASE_URL"); baseURL != "" {
 		ds.config.BaseURL = baseURL
 	}
@@ -122,9 +142,37 @@ func (ds *DataSender) loadEnvConfig() {
 		}
 	}
 
+	// Auto-enable if we have valid credentials from .env or environment
+	if !ds.config.Enabled && envLoaded {
+		if os.Getenv("ROI_AGENT_BASE_URL") != "" && os.Getenv("ROI_AGENT_API_KEY") != "" {
+			ds.config.Enabled = true
+			log.Printf("Environment variables detected - enabling data transmission")
+		}
+	}
+
+	// Generate device ID if not set
+	if ds.config.DeviceID == "" {
+		ds.config.DeviceID = ds.getOrGenerateDeviceID()
+	}
+
 	log.Printf("Data transmission enabled: %v", ds.config.Enabled)
 	log.Printf("Base URL: %s", ds.config.BaseURL)
 	log.Printf("Device ID: %s", ds.config.DeviceID)
+}
+
+// loadExistingConfig loads existing configuration from transmission_config.json
+func (ds *DataSender) loadExistingConfig() *Config {
+	data, err := ioutil.ReadFile(ds.configPath)
+	if err != nil {
+		return nil
+	}
+
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil
+	}
+
+	return &config
 }
 
 // saveConfig saves the current configuration
@@ -151,10 +199,10 @@ func (ds *DataSender) getOrGenerateDeviceID() string {
 	// Generate a new persistent device ID
 	newID := ds.generatePersistentDeviceID()
 	log.Printf("Generated new persistent device ID: %s", newID)
-	
+
 	// Save it for future use
 	ds.saveDeviceID(newID)
-	
+
 	return newID
 }
 
@@ -174,15 +222,42 @@ func (ds *DataSender) loadSavedDeviceID() string {
 }
 
 // saveDeviceID saves device ID to configuration file
+// IMPORTANT: This function only updates the device_id field and preserves
+// existing valid configuration to prevent overwriting with defaults
 func (ds *DataSender) saveDeviceID(deviceID string) {
-	tempConfig := Config{
-		DeviceID: deviceID,
-		BaseURL:  ds.config.BaseURL,
-		APIKey:   ds.config.APIKey,
-		Enabled:  ds.config.Enabled,
+	// Load existing configuration first
+	existingConfig := ds.loadExistingConfig()
+
+	var configToSave Config
+
+	if existingConfig != nil {
+		// Preserve existing valid settings
+		configToSave = *existingConfig
+		configToSave.DeviceID = deviceID
+
+		// Only update other fields if current config has better values
+		// (i.e., non-sample, non-empty values)
+		if ds.config.BaseURL != "" && ds.config.BaseURL != "https://api.sample-server.com/v1/roi-agent-sample" {
+			configToSave.BaseURL = ds.config.BaseURL
+		}
+		if ds.config.APIKey != "" && ds.config.APIKey != "sample-api-key-replace-with-actual" {
+			configToSave.APIKey = ds.config.APIKey
+		}
+		// Only set Enabled to true, never downgrade to false
+		if ds.config.Enabled {
+			configToSave.Enabled = true
+		}
+	} else {
+		// No existing config, use current config
+		configToSave = Config{
+			DeviceID: deviceID,
+			BaseURL:  ds.config.BaseURL,
+			APIKey:   ds.config.APIKey,
+			Enabled:  ds.config.Enabled,
+		}
 	}
 
-	data, err := json.MarshalIndent(tempConfig, "", "  ")
+	data, err := json.MarshalIndent(configToSave, "", "  ")
 	if err != nil {
 		log.Printf("Error marshaling config for device ID save: %v", err)
 		return
@@ -199,20 +274,20 @@ func (ds *DataSender) saveDeviceID(deviceID string) {
 // This ID should remain constant across reboots and re-installations
 func (ds *DataSender) generatePersistentDeviceID() string {
 	hostname, _ := os.Hostname()
-	
+
 	// Use hardware-based unique identifier (macOS serial number)
 	// If not available, fall back to hostname + hash
 	serialNumber := ds.getHardwareSerialNumber()
-	
+
 	if serialNumber != "" {
 		// Use serial number for guaranteed uniqueness
 		return fmt.Sprintf("%s-%s", hostname, serialNumber)
 	}
-	
+
 	// Fallback: Use hostname hash (deterministic)
 	hash := sha256.Sum256([]byte(hostname))
 	hashStr := hex.EncodeToString(hash[:])[:12] // First 12 characters
-	
+
 	return fmt.Sprintf("%s-%s", hostname, hashStr)
 }
 
@@ -220,11 +295,11 @@ func (ds *DataSender) generatePersistentDeviceID() string {
 func (ds *DataSender) getHardwareSerialNumber() string {
 	// On macOS, try to get serial number using system_profiler
 	// This is optional - if it fails, we use the hash fallback
-	
+
 	// Note: This requires execution permissions
 	// For now, we return empty and use the hash fallback
 	// Future enhancement: Execute `ioreg -l | grep IOPlatformSerialNumber`
-	
+
 	return ""
 }
 
