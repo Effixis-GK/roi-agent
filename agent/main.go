@@ -17,6 +17,14 @@ import (
 	"time"
 )
 
+// RemoteConfigCache represents the cached remote configuration
+type RemoteConfigCache struct {
+	ConfigVersion   int       `json:"config_version"`
+	IntervalMinutes int       `json:"interval_minutes"`
+	Enabled         bool      `json:"enabled"`
+	LastFetched     time.Time `json:"last_fetched"`
+}
+
 // NetworkConnection represents a simplified network connection with FQDN
 type NetworkConnection struct {
 	Domain          string    `json:"domain"`
@@ -1151,57 +1159,76 @@ type WiFiInfo struct {
 
 // getWiFiInfo gets WiFi connection information
 func (a *Agent) getWiFiInfo() (*WiFiInfo, error) {
-	airportPath := "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
-	cmd := exec.Command(airportPath, "-I")
+	info := &WiFiInfo{}
+
+	// Try using system_profiler (works on all macOS versions)
+	cmd := exec.Command("system_profiler", "SPAirPortDataType", "-json")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		// Fallback to networksetup for basic info
+		return a.getWiFiInfoFallback()
 	}
 
-	info := &WiFiInfo{}
-	lines := strings.Split(string(output), "\n")
+	// Parse JSON output
+	var data map[string]interface{}
+	if err := json.Unmarshal(output, &data); err != nil {
+		return a.getWiFiInfoFallback()
+	}
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		switch key {
-		case "agrCtlRSSI":
-			info.RSSI, _ = strconv.Atoi(value)
-		case "agrCtlNoise":
-			info.Noise, _ = strconv.Atoi(value)
-		case "SSID":
-			info.SSID = value
-		case "channel":
-			channelParts := strings.Split(value, ",")
-			if len(channelParts) > 0 {
-				info.Channel, _ = strconv.Atoi(channelParts[0])
+	// Navigate the JSON structure
+	if spAirPort, ok := data["SPAirPortDataType"].([]interface{}); ok {
+		for _, item := range spAirPort {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				// Look for current network info
+				if interfaces, ok := itemMap["spairport_airport_interfaces"].([]interface{}); ok {
+					for _, iface := range interfaces {
+						if ifaceMap, ok := iface.(map[string]interface{}); ok {
+							// Get current network
+							if currentNet, ok := ifaceMap["spairport_current_network_information"].(map[string]interface{}); ok {
+								if ssid, ok := currentNet["_name"].(string); ok {
+									info.SSID = ssid
+								}
+								if channel, ok := currentNet["spairport_network_channel"].(string); ok {
+									// Parse channel like "36 (5GHz, 80MHz)"
+									parts := strings.Split(channel, " ")
+									if len(parts) > 0 {
+										info.Channel, _ = strconv.Atoi(parts[0])
+									}
+								}
+								if phyMode, ok := currentNet["spairport_network_phymode"].(string); ok {
+									info.PHYMode = phyMode
+								}
+								if rssi, ok := currentNet["spairport_signal_noise"].(string); ok {
+									// Parse "RSSI -XX / Noise -XX"
+									parts := strings.Split(rssi, "/")
+									if len(parts) >= 1 {
+										rssiPart := strings.TrimSpace(parts[0])
+										rssiPart = strings.TrimPrefix(rssiPart, "RSSI ")
+										info.RSSI, _ = strconv.Atoi(rssiPart)
+									}
+									if len(parts) >= 2 {
+										noisePart := strings.TrimSpace(parts[1])
+										noisePart = strings.TrimPrefix(noisePart, "Noise ")
+										info.Noise, _ = strconv.Atoi(noisePart)
+									}
+								}
+								if txRate, ok := currentNet["spairport_network_rate"].(float64); ok {
+									info.TransmitRate = txRate
+								}
+							}
+						}
+					}
+				}
 			}
-		case "lastTxRate":
-			info.TransmitRate, _ = strconv.ParseFloat(value, 64)
 		}
 	}
 
-	// Determine PHY mode
-	if info.TransmitRate > 1000 {
-		info.PHYMode = "802.11ax"
-	} else if info.TransmitRate > 400 {
-		info.PHYMode = "802.11ac"
-	} else if info.TransmitRate > 54 {
-		info.PHYMode = "802.11n"
-	} else if info.Channel >= 36 {
-		info.PHYMode = "802.11a"
-	} else {
-		info.PHYMode = "802.11g"
+	// If we couldn't get data from system_profiler, try fallback
+	if info.SSID == "" {
+		return a.getWiFiInfoFallback()
 	}
 
-	// Determine signal quality
+	// Determine signal quality based on RSSI
 	switch {
 	case info.RSSI >= -50:
 		info.SignalQuality = "Excellent"
@@ -1214,6 +1241,42 @@ func (a *Agent) getWiFiInfo() (*WiFiInfo, error) {
 	default:
 		info.SignalQuality = "Very Poor"
 	}
+
+	return info, nil
+}
+
+// getWiFiInfoFallback uses networksetup as a fallback method
+func (a *Agent) getWiFiInfoFallback() (*WiFiInfo, error) {
+	info := &WiFiInfo{}
+
+	// Get current WiFi network name
+	cmd := exec.Command("networksetup", "-getairportnetwork", "en0")
+	output, err := cmd.Output()
+	if err != nil {
+		// Try en1 as well
+		cmd = exec.Command("networksetup", "-getairportnetwork", "en1")
+		output, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("WiFi not available")
+		}
+	}
+
+	// Parse output like "Current Wi-Fi Network: NetworkName"
+	line := strings.TrimSpace(string(output))
+	if strings.HasPrefix(line, "Current Wi-Fi Network:") {
+		info.SSID = strings.TrimSpace(strings.TrimPrefix(line, "Current Wi-Fi Network:"))
+	} else if strings.Contains(line, "not associated") {
+		return nil, fmt.Errorf("WiFi not connected")
+	}
+
+	if info.SSID == "" {
+		return nil, fmt.Errorf("could not determine WiFi SSID")
+	}
+
+	// Use wdutil for more details (may require privileges)
+	// For now, set reasonable defaults
+	info.SignalQuality = "Unknown"
+	info.PHYMode = "Unknown"
 
 	return info, nil
 }
@@ -1615,6 +1678,9 @@ func (a *Agent) updateAppUsage() {
 }
 
 func (a *Agent) triggerDataTransmission() {
+	// Check for remote config changes and update interval if needed
+	a.updateTransmissionIntervalFromRemoteConfig()
+
 	if time.Since(a.lastTransmission) >= a.transmissionInterval {
 		log.Println("Triggering data transmission...")
 		a.saveCombinedData()
@@ -1711,6 +1777,49 @@ func (a *Agent) Status() map[string]interface{} {
 		"active_connections": len(a.combinedData.Network),
 		"unique_domains":     a.combinedData.NetworkTotal.UniqueDomains,
 		"last_update":        a.lastUpdate,
+	}
+}
+
+// loadRemoteConfigCache loads the cached remote configuration to check for interval changes
+func (a *Agent) loadRemoteConfigCache() *RemoteConfigCache {
+	// Try multiple possible locations for the cache file
+	possiblePaths := []string{
+		"/var/root/.roiagent/remote_config.json",
+		filepath.Join(os.Getenv("HOME"), ".roiagent", "remote_config.json"),
+	}
+
+	for _, cachePath := range possiblePaths {
+		data, err := ioutil.ReadFile(cachePath)
+		if err != nil {
+			continue
+		}
+
+		var cache RemoteConfigCache
+		if err := json.Unmarshal(data, &cache); err != nil {
+			log.Printf("Error parsing remote config cache: %v", err)
+			continue
+		}
+
+		return &cache
+	}
+
+	return nil
+}
+
+// updateTransmissionIntervalFromRemoteConfig checks and updates the transmission interval
+func (a *Agent) updateTransmissionIntervalFromRemoteConfig() {
+	cache := a.loadRemoteConfigCache()
+	if cache == nil {
+		return
+	}
+
+	if cache.IntervalMinutes > 0 {
+		newInterval := time.Duration(cache.IntervalMinutes) * time.Minute
+		if newInterval != a.transmissionInterval {
+			log.Printf("Updating transmission interval from %v to %v (from remote config)",
+				a.transmissionInterval, newInterval)
+			a.transmissionInterval = newInterval
+		}
 	}
 }
 
