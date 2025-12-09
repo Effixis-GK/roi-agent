@@ -108,51 +108,32 @@ jobs:
           
           echo "☁️  Uploading to Cloud Storage..."
           
+          # Use gcloud storage instead of gsutil (fewer permission requirements)
           # Upload PKG files to latest/
           echo "Uploading ARM64 PKG..."
-          gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
+          gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
           
           echo "Uploading x64 PKG..."
-          gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
+          gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
           
           # Upload to versions/ for archiving
-          gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
+          gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
             ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-arm64.pkg
-          gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
+          gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
             ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-x64.pkg
           
           # Upload SHA256 checksums
           echo "Uploading checksums..."
-          gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 \
+          gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
-          gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 \
+          gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
           
           # Upload version info
           echo "Uploading version info..."
-          gsutil cp build/version.json ${BUCKET}/latest/version.json
-          
-          # Set content types (specify each file to avoid needing list permission)
-          gsutil setmeta -h "Content-Type:application/octet-stream" \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
-          gsutil setmeta -h "Content-Type:application/octet-stream" \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
-          gsutil setmeta -h "Content-Type:text/plain" \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
-          gsutil setmeta -h "Content-Type:text/plain" \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
-          gsutil setmeta -h "Content-Type:application/json" \
-            ${BUCKET}/latest/version.json
-          
-          # Set cache control (no caching for latest)
-          gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
-          gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
-          gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
-            ${BUCKET}/latest/version.json
+          gcloud storage cp build/version.json ${BUCKET}/latest/version.json
           
           echo "✅ Upload complete"
       
@@ -162,7 +143,7 @@ jobs:
           echo "📁 Verifying uploaded files..."
           echo ""
           echo "Version Info:"
-          gsutil cat "${BUCKET}/latest/version.json"
+          gcloud storage cat "${BUCKET}/latest/version.json"
           echo ""
           echo "✅ Verification complete (files uploaded successfully)"
       
