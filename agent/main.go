@@ -43,22 +43,64 @@ type AppUsage struct {
 
 // SystemMetrics represents system-wide performance metrics
 type SystemMetrics struct {
-	Timestamp          time.Time `json:"timestamp"`
-	CPUPercent         float64   `json:"cpu_percent"`
-	MemoryUsedMB       int64     `json:"memory_used_mb"`
-	MemoryTotalMB      int64     `json:"memory_total_mb"`
-	MemoryPercent      float64   `json:"memory_percent"`
-	DiskReadMBps       float64   `json:"disk_read_mbps"`
-	DiskWriteMBps      float64   `json:"disk_write_mbps"`
-	DiskReadOps        int64     `json:"disk_read_ops"`
-	DiskWriteOps       int64     `json:"disk_write_ops"`
-	BatteryLevel       int       `json:"battery_level,omitempty"`       // 0-100
-	BatteryCharging    bool      `json:"battery_charging,omitempty"`
-	BatteryTimeRemaining int    `json:"battery_time_remaining,omitempty"` // minutes
-	IdleTimeSec        int64     `json:"idle_time_sec"`
-	ScreenLocked       bool      `json:"screen_locked"`
-	ProcessCount       int       `json:"process_count"`
-	SystemUptimeSec     int64     `json:"system_uptime_sec"`
+	Timestamp            time.Time `json:"timestamp"`
+	CPUPercent           float64   `json:"cpu_percent"`
+	MemoryUsedMB         int64     `json:"memory_used_mb"`
+	MemoryTotalMB        int64     `json:"memory_total_mb"`
+	MemoryPercent        float64   `json:"memory_percent"`
+	DiskReadMBps         float64   `json:"disk_read_mbps"`
+	DiskWriteMBps        float64   `json:"disk_write_mbps"`
+	DiskReadOps          int64     `json:"disk_read_ops"`
+	DiskWriteOps         int64     `json:"disk_write_ops"`
+	BatteryLevel         int       `json:"battery_level,omitempty"`         // 0-100
+	BatteryCharging      bool      `json:"battery_charging,omitempty"`
+	BatteryTimeRemaining int       `json:"battery_time_remaining,omitempty"` // minutes
+	IdleTimeSec          int64     `json:"idle_time_sec"`
+	ScreenLocked         bool      `json:"screen_locked"`
+	ProcessCount         int       `json:"process_count"`
+	SystemUptimeSec      int64     `json:"system_uptime_sec"`
+	// New metrics from datadog-agent
+	Load1              float64 `json:"load_1,omitempty"`
+	Load5              float64 `json:"load_5,omitempty"`
+	Load15             float64 `json:"load_15,omitempty"`
+	LoadNorm1          float64 `json:"load_norm_1,omitempty"`
+	LoadNorm5          float64 `json:"load_norm_5,omitempty"`
+	LoadNorm15         float64 `json:"load_norm_15,omitempty"`
+	SwapUsedMB         int64   `json:"swap_used_mb,omitempty"`
+	SwapTotalMB        int64   `json:"swap_total_mb,omitempty"`
+	SwapPercent        float64 `json:"swap_percent,omitempty"`
+	MemoryPressure     string  `json:"memory_pressure,omitempty"`
+	NetBytesRecv       uint64  `json:"net_bytes_recv,omitempty"`
+	NetBytesSent       uint64  `json:"net_bytes_sent,omitempty"`
+	NetPacketsRecv     uint64  `json:"net_packets_recv,omitempty"`
+	NetPacketsSent     uint64  `json:"net_packets_sent,omitempty"`
+	NetErrorsIn        uint64  `json:"net_errors_in,omitempty"`
+	NetErrorsOut       uint64  `json:"net_errors_out,omitempty"`
+	WiFiSSID           string  `json:"wifi_ssid,omitempty"`
+	WiFiRSSI           int     `json:"wifi_rssi,omitempty"`
+	WiFiNoise          int     `json:"wifi_noise,omitempty"`
+	WiFiChannel        int     `json:"wifi_channel,omitempty"`
+	WiFiTransmitRate   float64 `json:"wifi_transmit_rate,omitempty"`
+	WiFiPHYMode        string  `json:"wifi_phy_mode,omitempty"`
+	WiFiSignalQuality  string  `json:"wifi_signal_quality,omitempty"`
+	TCPEstablished     int     `json:"tcp_established,omitempty"`
+	TCPTimeWait        int     `json:"tcp_time_wait,omitempty"`
+	TCPCloseWait       int     `json:"tcp_close_wait,omitempty"`
+	// Additional metrics - Phase 2
+	DiskUsedPercent    float64 `json:"disk_used_percent,omitempty"`
+	DiskFreeGB         float64 `json:"disk_free_gb,omitempty"`
+	DiskTotalGB        float64 `json:"disk_total_gb,omitempty"`
+	DiskHealth         string  `json:"disk_health,omitempty"`
+	OpenFileHandles    int64   `json:"open_file_handles,omitempty"`
+	MaxFileHandles     int64   `json:"max_file_handles,omitempty"`
+	ExternalDisplays   int     `json:"external_displays,omitempty"`
+	TotalDisplays      int     `json:"total_displays,omitempty"`
+	BluetoothDevices   int     `json:"bluetooth_devices,omitempty"`
+	MeetingActive      bool    `json:"meeting_active,omitempty"`
+	CameraInUse        bool    `json:"camera_in_use,omitempty"`
+	MicrophoneInUse    bool    `json:"microphone_in_use,omitempty"`
+	BrowserTabs        int     `json:"browser_tabs,omitempty"`
+	FocusScore         float64 `json:"focus_score,omitempty"`
 }
 
 // ProcessMetrics represents per-process CPU and memory metrics
@@ -542,6 +584,94 @@ func (a *Agent) collectSystemMetrics() *SystemMetrics {
 		metrics.SystemUptimeSec = uptimeSec
 	}
 
+	// === New metrics from datadog-agent ===
+
+	// Get load average
+	if load, err := a.getLoadAverage(); err == nil {
+		metrics.Load1 = load.Load1
+		metrics.Load5 = load.Load5
+		metrics.Load15 = load.Load15
+		metrics.LoadNorm1 = load.LoadNorm1
+		metrics.LoadNorm5 = load.LoadNorm5
+		metrics.LoadNorm15 = load.LoadNorm15
+	}
+
+	// Get swap and memory pressure
+	if swap, err := a.getSwapUsage(); err == nil {
+		metrics.SwapUsedMB = swap.UsedMB
+		metrics.SwapTotalMB = swap.TotalMB
+		metrics.SwapPercent = swap.Percent
+		metrics.MemoryPressure = swap.Pressure
+	}
+
+	// Get network I/O
+	if netIO, err := a.getNetworkIO(); err == nil {
+		metrics.NetBytesRecv = netIO.BytesRecv
+		metrics.NetBytesSent = netIO.BytesSent
+		metrics.NetPacketsRecv = netIO.PacketsRecv
+		metrics.NetPacketsSent = netIO.PacketsSent
+		metrics.NetErrorsIn = netIO.ErrorsIn
+		metrics.NetErrorsOut = netIO.ErrorsOut
+	}
+
+	// Get WiFi info
+	if wifi, err := a.getWiFiInfo(); err == nil {
+		metrics.WiFiSSID = wifi.SSID
+		metrics.WiFiRSSI = wifi.RSSI
+		metrics.WiFiNoise = wifi.Noise
+		metrics.WiFiChannel = wifi.Channel
+		metrics.WiFiTransmitRate = wifi.TransmitRate
+		metrics.WiFiPHYMode = wifi.PHYMode
+		metrics.WiFiSignalQuality = wifi.SignalQuality
+	}
+
+	// Get TCP connection stats
+	if tcp, err := a.getTCPStats(); err == nil {
+		metrics.TCPEstablished = tcp.Established
+		metrics.TCPTimeWait = tcp.TimeWait
+		metrics.TCPCloseWait = tcp.CloseWait
+	}
+
+	// === Additional metrics - Phase 2 ===
+
+	// Get disk usage
+	if disk, err := a.getDiskUsage(); err == nil {
+		metrics.DiskUsedPercent = disk.UsedPercent
+		metrics.DiskFreeGB = disk.FreeGB
+		metrics.DiskTotalGB = disk.TotalGB
+		metrics.DiskHealth = disk.Health
+	}
+
+	// Get file handle usage
+	if fileHandles, err := a.getFileHandles(); err == nil {
+		metrics.OpenFileHandles = fileHandles.OpenFiles
+		metrics.MaxFileHandles = fileHandles.MaxFiles
+	}
+
+	// Get display info
+	if displays, err := a.getDisplayInfo(); err == nil {
+		metrics.TotalDisplays = displays.TotalDisplays
+		metrics.ExternalDisplays = displays.ExternalDisplays
+	}
+
+	// Get Bluetooth device count
+	if btDevices, err := a.getBluetoothDevices(); err == nil {
+		metrics.BluetoothDevices = btDevices
+	}
+
+	// Get user activity metrics
+	if activity, err := a.getUserActivity(); err == nil {
+		metrics.MeetingActive = activity.MeetingActive
+		metrics.CameraInUse = activity.CameraInUse
+		metrics.MicrophoneInUse = activity.MicrophoneInUse
+		metrics.FocusScore = activity.FocusScore
+	}
+
+	// Get browser tabs count
+	if tabs, err := a.getBrowserTabs(); err == nil {
+		metrics.BrowserTabs = tabs
+	}
+
 	return metrics
 }
 
@@ -810,6 +940,554 @@ func (a *Agent) getSystemUptime() (int64, error) {
 	}
 
 	return 0, fmt.Errorf("could not parse boot time")
+}
+
+// LoadMetrics represents load average metrics
+type LoadMetrics struct {
+	Load1      float64
+	Load5      float64
+	Load15     float64
+	LoadNorm1  float64
+	LoadNorm5  float64
+	LoadNorm15 float64
+}
+
+// getLoadAverage gets system load average
+func (a *Agent) getLoadAverage() (*LoadMetrics, error) {
+	cmd := exec.Command("sysctl", "-n", "vm.loadavg")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	// Output format: "{ 1.23 4.56 7.89 }"
+	outputStr := strings.TrimSpace(string(output))
+	outputStr = strings.Trim(outputStr, "{ }")
+	parts := strings.Fields(outputStr)
+
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("unexpected load average format")
+	}
+
+	load1, _ := strconv.ParseFloat(parts[0], 64)
+	load5, _ := strconv.ParseFloat(parts[1], 64)
+	load15, _ := strconv.ParseFloat(parts[2], 64)
+
+	// Get CPU count for normalization
+	cpuCmd := exec.Command("sysctl", "-n", "hw.logicalcpu")
+	cpuOutput, err := cpuCmd.Output()
+	numCPU := 1.0
+	if err == nil {
+		if count, err := strconv.ParseFloat(strings.TrimSpace(string(cpuOutput)), 64); err == nil && count > 0 {
+			numCPU = count
+		}
+	}
+
+	return &LoadMetrics{
+		Load1:      load1,
+		Load5:      load5,
+		Load15:     load15,
+		LoadNorm1:  load1 / numCPU,
+		LoadNorm5:  load5 / numCPU,
+		LoadNorm15: load15 / numCPU,
+	}, nil
+}
+
+// SwapMetrics represents swap usage metrics
+type SwapMetrics struct {
+	UsedMB   int64
+	TotalMB  int64
+	Percent  float64
+	Pressure string
+}
+
+// getSwapUsage gets swap usage and memory pressure
+func (a *Agent) getSwapUsage() (*SwapMetrics, error) {
+	cmd := exec.Command("sysctl", "-n", "vm.swapusage")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	// Output format: "total = 2048.00M  used = 512.00M  free = 1536.00M"
+	outputStr := strings.TrimSpace(string(output))
+	parts := strings.Fields(outputStr)
+
+	metrics := &SwapMetrics{}
+
+	for i := 0; i < len(parts); i++ {
+		if parts[i] == "total" && i+2 < len(parts) && parts[i+1] == "=" {
+			metrics.TotalMB = parseMemoryMB(parts[i+2])
+		} else if parts[i] == "used" && i+2 < len(parts) && parts[i+1] == "=" {
+			metrics.UsedMB = parseMemoryMB(parts[i+2])
+		}
+	}
+
+	if metrics.TotalMB > 0 {
+		metrics.Percent = float64(metrics.UsedMB) / float64(metrics.TotalMB) * 100
+	}
+
+	// Get memory pressure
+	pressureCmd := exec.Command("memory_pressure")
+	pressureOutput, err := pressureCmd.Output()
+	if err == nil {
+		pressureStr := strings.ToLower(string(pressureOutput))
+		if strings.Contains(pressureStr, "critical") {
+			metrics.Pressure = "critical"
+		} else if strings.Contains(pressureStr, "warning") {
+			metrics.Pressure = "warning"
+		} else if strings.Contains(pressureStr, "normal") {
+			metrics.Pressure = "normal"
+		} else {
+			metrics.Pressure = "unknown"
+		}
+	} else {
+		metrics.Pressure = "unknown"
+	}
+
+	return metrics, nil
+}
+
+// parseMemoryMB parses memory string like "2048.00M" to MB int64
+func parseMemoryMB(sizeStr string) int64 {
+	sizeStr = strings.TrimSpace(sizeStr)
+	if len(sizeStr) == 0 {
+		return 0
+	}
+
+	unit := sizeStr[len(sizeStr)-1]
+	valueStr := sizeStr[:len(sizeStr)-1]
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return 0
+	}
+
+	switch unit {
+	case 'K', 'k':
+		return int64(value / 1024)
+	case 'M', 'm':
+		return int64(value)
+	case 'G', 'g':
+		return int64(value * 1024)
+	case 'T', 't':
+		return int64(value * 1024 * 1024)
+	default:
+		return int64(value / (1024 * 1024))
+	}
+}
+
+// NetworkIOMetrics represents network I/O metrics
+type NetworkIOMetrics struct {
+	BytesRecv   uint64
+	BytesSent   uint64
+	PacketsRecv uint64
+	PacketsSent uint64
+	ErrorsIn    uint64
+	ErrorsOut   uint64
+}
+
+// getNetworkIO gets network I/O statistics
+func (a *Agent) getNetworkIO() (*NetworkIOMetrics, error) {
+	cmd := exec.Command("netstat", "-ib")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	metrics := &NetworkIOMetrics{}
+	lines := strings.Split(string(output), "\n")
+
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+
+		parts := strings.Fields(line)
+		if len(parts) < 10 {
+			continue
+		}
+
+		interfaceName := parts[0]
+		// Skip loopback and virtual interfaces
+		if strings.HasPrefix(interfaceName, "lo") ||
+			strings.HasPrefix(interfaceName, "gif") ||
+			strings.HasPrefix(interfaceName, "utun") ||
+			strings.HasPrefix(interfaceName, "awdl") {
+			continue
+		}
+
+		// Check if this is a Link layer line
+		if len(parts) >= 3 && parts[2] == "Link" && len(parts) >= 11 {
+			packetsRecv, _ := strconv.ParseUint(parts[4], 10, 64)
+			errorsIn, _ := strconv.ParseUint(parts[5], 10, 64)
+			bytesRecv, _ := strconv.ParseUint(parts[6], 10, 64)
+			packetsSent, _ := strconv.ParseUint(parts[7], 10, 64)
+			errorsOut, _ := strconv.ParseUint(parts[8], 10, 64)
+			bytesSent, _ := strconv.ParseUint(parts[9], 10, 64)
+
+			metrics.BytesRecv += bytesRecv
+			metrics.BytesSent += bytesSent
+			metrics.PacketsRecv += packetsRecv
+			metrics.PacketsSent += packetsSent
+			metrics.ErrorsIn += errorsIn
+			metrics.ErrorsOut += errorsOut
+		}
+	}
+
+	return metrics, nil
+}
+
+// WiFiInfo represents WiFi connection info
+type WiFiInfo struct {
+	SSID          string
+	RSSI          int
+	Noise         int
+	Channel       int
+	TransmitRate  float64
+	PHYMode       string
+	SignalQuality string
+}
+
+// getWiFiInfo gets WiFi connection information
+func (a *Agent) getWiFiInfo() (*WiFiInfo, error) {
+	airportPath := "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+	cmd := exec.Command(airportPath, "-I")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	info := &WiFiInfo{}
+	lines := strings.Split(string(output), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "agrCtlRSSI":
+			info.RSSI, _ = strconv.Atoi(value)
+		case "agrCtlNoise":
+			info.Noise, _ = strconv.Atoi(value)
+		case "SSID":
+			info.SSID = value
+		case "channel":
+			channelParts := strings.Split(value, ",")
+			if len(channelParts) > 0 {
+				info.Channel, _ = strconv.Atoi(channelParts[0])
+			}
+		case "lastTxRate":
+			info.TransmitRate, _ = strconv.ParseFloat(value, 64)
+		}
+	}
+
+	// Determine PHY mode
+	if info.TransmitRate > 1000 {
+		info.PHYMode = "802.11ax"
+	} else if info.TransmitRate > 400 {
+		info.PHYMode = "802.11ac"
+	} else if info.TransmitRate > 54 {
+		info.PHYMode = "802.11n"
+	} else if info.Channel >= 36 {
+		info.PHYMode = "802.11a"
+	} else {
+		info.PHYMode = "802.11g"
+	}
+
+	// Determine signal quality
+	switch {
+	case info.RSSI >= -50:
+		info.SignalQuality = "Excellent"
+	case info.RSSI >= -60:
+		info.SignalQuality = "Good"
+	case info.RSSI >= -70:
+		info.SignalQuality = "Fair"
+	case info.RSSI >= -80:
+		info.SignalQuality = "Poor"
+	default:
+		info.SignalQuality = "Very Poor"
+	}
+
+	return info, nil
+}
+
+// TCPStats represents TCP connection statistics
+type TCPStats struct {
+	Established int
+	TimeWait    int
+	CloseWait   int
+}
+
+// getTCPStats gets TCP connection statistics
+func (a *Agent) getTCPStats() (*TCPStats, error) {
+	cmd := exec.Command("netstat", "-an", "-p", "tcp")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &TCPStats{}
+	lines := strings.Split(string(output), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Active") || strings.HasPrefix(line, "Proto") {
+			continue
+		}
+
+		parts := strings.Fields(line)
+		if len(parts) < 6 {
+			continue
+		}
+
+		state := strings.ToUpper(parts[len(parts)-1])
+
+		switch state {
+		case "ESTABLISHED":
+			stats.Established++
+		case "TIME_WAIT":
+			stats.TimeWait++
+		case "CLOSE_WAIT":
+			stats.CloseWait++
+		}
+	}
+
+	return stats, nil
+}
+
+// DiskUsage represents disk usage metrics
+type DiskUsage struct {
+	UsedPercent float64
+	FreeGB      float64
+	TotalGB     float64
+	Health      string
+}
+
+// getDiskUsage gets root disk usage
+func (a *Agent) getDiskUsage() (*DiskUsage, error) {
+	cmd := exec.Command("df", "-k", "/")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("unexpected df output")
+	}
+
+	parts := strings.Fields(lines[1])
+	if len(parts) < 6 {
+		return nil, fmt.Errorf("unexpected df output format")
+	}
+
+	totalKB, _ := strconv.ParseFloat(parts[1], 64)
+	usedKB, _ := strconv.ParseFloat(parts[2], 64)
+	freeKB, _ := strconv.ParseFloat(parts[3], 64)
+
+	disk := &DiskUsage{
+		TotalGB: totalKB / (1024 * 1024),
+		FreeGB:  freeKB / (1024 * 1024),
+	}
+
+	if totalKB > 0 {
+		disk.UsedPercent = (usedKB / totalKB) * 100
+	}
+
+	// Determine health
+	if disk.UsedPercent >= 90 {
+		disk.Health = "critical"
+	} else if disk.UsedPercent >= 80 {
+		disk.Health = "warning"
+	} else {
+		disk.Health = "healthy"
+	}
+
+	return disk, nil
+}
+
+// FileHandles represents file handle metrics
+type FileHandles struct {
+	OpenFiles int64
+	MaxFiles  int64
+}
+
+// getFileHandles gets file handle usage
+func (a *Agent) getFileHandles() (*FileHandles, error) {
+	handles := &FileHandles{}
+
+	cmd := exec.Command("sysctl", "-n", "kern.num_files")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	handles.OpenFiles, _ = strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64)
+
+	cmd = exec.Command("sysctl", "-n", "kern.maxfiles")
+	output, err = cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	handles.MaxFiles, _ = strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64)
+
+	return handles, nil
+}
+
+// DisplayMetrics represents display configuration
+type DisplayMetrics struct {
+	TotalDisplays    int
+	ExternalDisplays int
+}
+
+// getDisplayInfo gets connected display information
+func (a *Agent) getDisplayInfo() (*DisplayMetrics, error) {
+	cmd := exec.Command("system_profiler", "SPDisplaysDataType")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	metrics := &DisplayMetrics{}
+	lines := strings.Split(string(output), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Count displays by looking for Resolution lines
+		if strings.HasPrefix(line, "Resolution:") {
+			metrics.TotalDisplays++
+		}
+		// Count external displays
+		if strings.Contains(line, "Built-In") || strings.Contains(line, "Internal") {
+			// Built-in display found, don't count as external
+		} else if strings.HasPrefix(line, "Resolution:") {
+			metrics.ExternalDisplays++
+		}
+	}
+
+	// Adjust external count (first display is usually built-in on laptops)
+	if metrics.ExternalDisplays > 0 {
+		metrics.ExternalDisplays--
+	}
+
+	return metrics, nil
+}
+
+// getBluetoothDevices returns the number of connected Bluetooth devices
+func (a *Agent) getBluetoothDevices() (int, error) {
+	cmd := exec.Command("system_profiler", "SPBluetoothDataType")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	lines := strings.Split(string(output), "\n")
+	inConnectedSection := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "Connected:") {
+			inConnectedSection = true
+			continue
+		}
+		if inConnectedSection && strings.HasSuffix(line, ":") &&
+			!strings.Contains(line, "Address") && !strings.Contains(line, "Type") {
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+// UserActivity represents user activity metrics
+type UserActivity struct {
+	MeetingActive   bool
+	CameraInUse     bool
+	MicrophoneInUse bool
+	FocusScore      float64
+}
+
+// getUserActivity gets user activity metrics
+func (a *Agent) getUserActivity() (*UserActivity, error) {
+	activity := &UserActivity{
+		FocusScore: 80.0, // Default focus score
+	}
+
+	// Check if in a meeting
+	meetingApps := []string{"zoom.us", "Zoom", "Microsoft Teams", "Slack", "Google Meet", "FaceTime", "Webex"}
+	cmd := exec.Command("osascript", "-e", `
+		tell application "System Events"
+			set appList to name of every application process whose background only is false
+			set AppleScript's text item delimiters to "|"
+			return appList as string
+		end tell
+	`)
+	output, err := cmd.Output()
+	if err == nil {
+		apps := strings.Split(strings.TrimSpace(string(output)), "|")
+		for _, app := range apps {
+			app = strings.TrimSpace(app)
+			for _, meetingApp := range meetingApps {
+				if strings.Contains(strings.ToLower(app), strings.ToLower(meetingApp)) {
+					activity.MeetingActive = true
+					break
+				}
+			}
+		}
+	}
+
+	// If in a meeting, assume camera/mic might be in use and increase focus score
+	if activity.MeetingActive {
+		activity.CameraInUse = true
+		activity.MicrophoneInUse = true
+		activity.FocusScore = 90.0
+	}
+
+	return activity, nil
+}
+
+// getBrowserTabs returns total browser tabs count
+func (a *Agent) getBrowserTabs() (int, error) {
+	totalTabs := 0
+
+	browsers := map[string]string{
+		"Safari":        `tell application "Safari" to count of tabs of every window`,
+		"Google Chrome": `tell application "Google Chrome" to count of tabs of every window`,
+	}
+
+	for browser, script := range browsers {
+		// Check if browser is running
+		checkCmd := exec.Command("osascript", "-e",
+			fmt.Sprintf(`tell application "System Events" to (name of processes) contains "%s"`, browser))
+		checkOutput, err := checkCmd.Output()
+		if err != nil || !strings.Contains(string(checkOutput), "true") {
+			continue
+		}
+
+		// Get tab count
+		cmd := exec.Command("osascript", "-e", script)
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		tabCountStr := strings.TrimSpace(string(output))
+		tabCounts := strings.Split(tabCountStr, ", ")
+		for _, countStr := range tabCounts {
+			if count, err := strconv.Atoi(strings.TrimSpace(countStr)); err == nil {
+				totalTabs += count
+			}
+		}
+	}
+
+	return totalTabs, nil
 }
 
 // collectProcessMetrics collects per-process CPU and memory metrics
