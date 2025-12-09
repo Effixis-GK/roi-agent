@@ -148,7 +148,7 @@ jobs:
             -h localhost \
             -p 5432 \
             -U admin \
-            -d roi_service \
+            -d postgres \
             -c "
             INSERT INTO agent_releases (
                 version,

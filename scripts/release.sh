@@ -12,7 +12,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 GCS_BUCKET="roi-agent-releases"
 CLOUDSQL_INSTANCE="roi-production"
 CLOUDSQL_USER="admin"
-CLOUDSQL_DB="roi_service"
+CLOUDSQL_DB="production"  
 GCP_PROJECT="teak-frame-465410-a0"
 
 # Colors for output
