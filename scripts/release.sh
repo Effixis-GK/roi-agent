@@ -156,6 +156,10 @@ if command -v psql &> /dev/null; then
         chmod +x /tmp/cloud-sql-proxy
     fi
     
+    # Kill existing Cloud SQL Proxy if running
+    pkill -f "cloud-sql-proxy.*${CLOUDSQL_INSTANCE}" 2>/dev/null || true
+    sleep 2
+    
     # Start Cloud SQL Proxy in background
     /tmp/cloud-sql-proxy --port 5433 "${GCP_PROJECT}:asia-northeast1:${CLOUDSQL_INSTANCE}" &
     PROXY_PID=$!
