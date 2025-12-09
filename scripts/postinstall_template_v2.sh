@@ -20,16 +20,24 @@ chmod 644 "$PLIST_DST"
 
 echo "✅ LaunchDaemon plist installed"
 
+# 共有設定ディレクトリを作成（roi-agent と data-sender の両方がアクセス）
+SHARED_CONFIG_DIR="/var/lib/roiagent"
+mkdir -p "$SHARED_CONFIG_DIR"
+chmod 755 "$SHARED_CONFIG_DIR"
+
+echo "✅ Shared config directory created"
+
 # ログディレクトリを作成（システム共有）
-LOG_DIR="/Users/Shared/.roiagent/logs"
-DATA_DIR="/Users/Shared/.roiagent/data"
+LOG_DIR="/var/log/roiagent"
+DATA_DIR="/var/root/.roiagent/data"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$DATA_DIR"
-chown -R root:wheel "/Users/Shared/.roiagent"
-chmod -R 755 "/Users/Shared/.roiagent"
+mkdir -p "/var/root/.roiagent/logs"
+mkdir -p "/var/root/.roiagent/transmission"
+chmod 755 "$LOG_DIR"
 
-echo "✅ Log directory created"
+echo "✅ Log and data directories created"
 
 # .envファイルを生成（環境変数から）
 ENV_FILE="/Applications/ROI Agent/Resources/.env"
@@ -62,7 +70,7 @@ echo ""
 echo "✅ ROI Agent installed and started as system service!"
 echo "   Running with root permissions for tcpdump DNS monitoring"
 echo ""
-echo "📊 Check logs: tail -f $LOG_DIR/agent.log"
+echo "📊 Check logs: tail -f /var/log/roiagent/roiagent.log"
 echo "🛑 Stop service: sudo launchctl stop system/com.roiagent"
 echo "🚀 Start service: sudo launchctl start system/com.roiagent"
 echo ""
