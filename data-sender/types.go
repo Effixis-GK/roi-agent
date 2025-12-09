@@ -82,6 +82,10 @@ type SystemMetricsData struct {
 	MicrophoneInUse    bool    `json:"microphone_in_use,omitempty"`
 	BrowserTabs        int     `json:"browser_tabs,omitempty"`
 	FocusScore         float64 `json:"focus_score,omitempty"`
+	// New fields for DB compatibility
+	MeetingStatus    string `json:"meeting_status,omitempty"`
+	UserActive       bool   `json:"user_active,omitempty"`
+	BrowserTabCount  int    `json:"browser_tab_count,omitempty"`
 }
 
 // ProcessMetricsData represents per-process CPU and memory metrics for transmission
@@ -206,6 +210,10 @@ type SystemMetricsLocal struct {
 	MicrophoneInUse    bool    `json:"microphone_in_use,omitempty"`
 	BrowserTabs        int     `json:"browser_tabs,omitempty"`
 	FocusScore         float64 `json:"focus_score,omitempty"`
+	// New fields for DB compatibility
+	MeetingStatus    string `json:"meeting_status,omitempty"`
+	UserActive       bool   `json:"user_active,omitempty"`
+	BrowserTabCount  int    `json:"browser_tab_count,omitempty"`
 }
 
 // ProcessMetricsLocal represents process metrics in local storage (with time.Time)
