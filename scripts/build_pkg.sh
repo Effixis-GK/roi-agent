@@ -154,9 +154,10 @@ pkill -f "data-sender" 2>/dev/null || true
 rm -rf "/Applications/ROI Agent"
 
 echo ""
-read -p "Remove system data (/var/root/.roiagent)? [y/N] " -n 1 -r
+read -p "Remove system data (/var/lib/roiagent, /var/root/.roiagent)? [y/N] " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
+    rm -rf /var/lib/roiagent
     rm -rf /var/root/.roiagent
     echo "  ✅ System data removed"
 fi
@@ -195,7 +196,11 @@ set -e
 
 echo "🚀 Setting up ROI Agent (system-wide)..."
 
-# ログディレクトリとデータディレクトリ作成
+# 共有設定ディレクトリ作成 (roi-agent と data-sender の両方がアクセス)
+mkdir -p /var/lib/roiagent
+chmod 755 /var/lib/roiagent
+
+# ログディレクトリとデータディレクトリ作成 (レガシー互換性)
 mkdir -p /var/root/.roiagent/logs
 mkdir -p /var/root/.roiagent/data
 mkdir -p /var/root/.roiagent/transmission

@@ -12,7 +12,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 GCS_BUCKET="roi-agent-releases"
 CLOUDSQL_INSTANCE="roi-production"
 CLOUDSQL_USER="admin"
-CLOUDSQL_DB="roi_service"
+CLOUDSQL_DB="production"  
 GCP_PROJECT="teak-frame-465410-a0"
 
 # Colors for output
@@ -145,16 +145,50 @@ INSERT INTO agent_releases (
 UPDATE agent_releases SET is_latest = false WHERE version != '${VERSION}';
 "
 
-echo "Connecting to CloudSQL..."
-gcloud sql connect ${CLOUDSQL_INSTANCE} \
-    --user=${CLOUDSQL_USER} \
-    --database=${CLOUDSQL_DB} \
-    --project=${GCP_PROJECT} \
-    --quiet << EOF
-${SQL_QUERY}
-EOF
-
-echo -e "${GREEN}✅ CloudSQL updated${NC}"
+# Check if psql is available
+if command -v psql &> /dev/null; then
+    echo "Using psql with Cloud SQL Proxy..."
+    
+    # Download Cloud SQL Proxy if not exists
+    if [ ! -f "/tmp/cloud-sql-proxy" ]; then
+        echo "Downloading Cloud SQL Proxy..."
+        curl -o /tmp/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.darwin.arm64
+        chmod +x /tmp/cloud-sql-proxy
+    fi
+    
+    # Kill existing Cloud SQL Proxy if running
+    pkill -f "cloud-sql-proxy.*${CLOUDSQL_INSTANCE}" 2>/dev/null || true
+    sleep 2
+    
+    # Start Cloud SQL Proxy in background
+    /tmp/cloud-sql-proxy --port 5433 "${GCP_PROJECT}:asia-northeast1:${CLOUDSQL_INSTANCE}" &
+    PROXY_PID=$!
+    
+    # Wait for proxy to be ready
+    sleep 5
+    
+    # Execute SQL
+    echo "Executing SQL..."
+    PGPASSWORD="${CLOUDSQL_PASSWORD}" psql \
+        -h localhost \
+        -p 5433 \
+        -U ${CLOUDSQL_USER} \
+        -d ${CLOUDSQL_DB} \
+        -c "${SQL_QUERY}"
+    
+    # Stop proxy
+    kill $PROXY_PID
+    
+    echo -e "${GREEN}✅ CloudSQL updated${NC}"
+else
+    echo -e "${YELLOW}⚠️  psql not found. Install PostgreSQL client:${NC}"
+    echo "  brew install postgresql@15"
+    echo ""
+    echo "Or manually run this SQL in CloudSQL:"
+    echo "${SQL_QUERY}"
+    echo ""
+    read -p "Press Enter to continue without CloudSQL update, or Ctrl+C to cancel..."
+fi
 
 # Step 5: Update VERSION file
 echo -e "\n${YELLOW}Step 5: Updating VERSION file...${NC}"
