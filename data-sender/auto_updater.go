@@ -3,8 +3,10 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +16,16 @@ import (
 	"strings"
 	"time"
 )
+
+// DownloadURLResponse represents the response from the download URL API
+type DownloadURLResponse struct {
+	Version     string `json:"version"`
+	DownloadURL string `json:"download_url"`
+	Checksum    string `json:"checksum,omitempty"`
+	ExpiresIn   int    `json:"expires_in"`
+	Platform    string `json:"platform"`
+	Arch        string `json:"arch"`
+}
 
 // AutoUpdater handles automatic agent updates
 type AutoUpdater struct {
@@ -123,11 +135,6 @@ func compareVersions(v1, v2 string) int {
 
 // performUpdate downloads and installs the update
 func (au *AutoUpdater) performUpdate(rc *RemoteConfig) error {
-	// Check for update URL
-	if rc.UpdateURL == "" {
-		return fmt.Errorf("no update URL provided")
-	}
-
 	// Create temp directory
 	if err := os.MkdirAll(au.tempDir, 0755); err != nil {
 		return fmt.Errorf("failed to create temp directory: %v", err)
@@ -136,17 +143,44 @@ func (au *AutoUpdater) performUpdate(rc *RemoteConfig) error {
 
 	pkgPath := filepath.Join(au.tempDir, "ROI-Agent-update.pkg")
 
+	// Get download URL - try signed URL API first, fall back to direct URL
+	downloadURL := rc.UpdateURL
+	checksum := rc.UpdateChecksum
+
+	// If URL is a GCS URL, try to get a signed URL via API
+	if strings.Contains(downloadURL, "storage.googleapis.com") || downloadURL == "" {
+		log.Printf("Fetching signed download URL from API...")
+		signedResp, err := au.fetchSignedDownloadURL()
+		if err != nil {
+			if downloadURL != "" {
+				log.Printf("Warning: Failed to get signed URL, trying direct URL: %v", err)
+			} else {
+				return fmt.Errorf("no update URL available and failed to get signed URL: %v", err)
+			}
+		} else {
+			downloadURL = signedResp.DownloadURL
+			if signedResp.Checksum != "" {
+				checksum = signedResp.Checksum
+			}
+			log.Printf("Got signed URL (expires in %d seconds)", signedResp.ExpiresIn)
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no download URL available")
+	}
+
 	// Download PKG
-	log.Printf("Downloading update from %s...", rc.UpdateURL)
-	if err := au.downloadFile(rc.UpdateURL, pkgPath); err != nil {
+	log.Printf("Downloading update...")
+	if err := au.downloadFile(downloadURL, pkgPath); err != nil {
 		return fmt.Errorf("download failed: %v", err)
 	}
 	log.Printf("Download complete: %s", pkgPath)
 
 	// Verify checksum if provided
-	if rc.UpdateChecksum != "" {
+	if checksum != "" {
 		log.Printf("Verifying checksum...")
-		if err := au.verifyChecksum(pkgPath, rc.UpdateChecksum); err != nil {
+		if err := au.verifyChecksum(pkgPath, checksum); err != nil {
 			return fmt.Errorf("checksum verification failed: %v", err)
 		}
 		log.Printf("Checksum verified")
@@ -281,6 +315,68 @@ func (au *AutoUpdater) installPkg(pkgPath string) error {
 // GetCurrentVersion returns the current agent version
 func (au *AutoUpdater) GetCurrentVersion() string {
 	return au.currentVersion
+}
+
+// fetchSignedDownloadURL fetches a signed download URL from the API
+func (au *AutoUpdater) fetchSignedDownloadURL() (*DownloadURLResponse, error) {
+	if au.config.BaseURL == "" || au.config.APIKey == "" {
+		return nil, fmt.Errorf("BaseURL or APIKey not configured")
+	}
+
+	// Build download URL endpoint
+	downloadURLEndpoint := au.config.BaseURL
+	if strings.HasSuffix(downloadURLEndpoint, "/device") {
+		downloadURLEndpoint = strings.TrimSuffix(downloadURLEndpoint, "/device") + "/agent/download-url"
+	} else {
+		downloadURLEndpoint = strings.TrimSuffix(downloadURLEndpoint, "/") + "/agent/download-url"
+	}
+
+	// Add platform and arch parameters
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	downloadURLEndpoint = fmt.Sprintf("%s?platform=%s&arch=%s", downloadURLEndpoint, runtime.GOOS, arch)
+
+	// Create request
+	req, err := http.NewRequest("GET", downloadURLEndpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Key", au.config.APIKey)
+	req.Header.Set("X-Device-ID", au.config.DeviceID)
+	req.Header.Set("User-Agent", fmt.Sprintf("ROI-Agent/%s", au.currentVersion))
+
+	// Send request
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var downloadResp DownloadURLResponse
+	if err := json.Unmarshal(body, &downloadResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	return &downloadResp, nil
 }
 
 // ForceUpdate triggers an immediate update check and installation
