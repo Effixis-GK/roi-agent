@@ -1,22 +1,28 @@
-name: Build and Upload ROI Agent PKG
+name: Build and Release ROI Agent
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'  # v1.4.0 などのタグでトリガー
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., v1.2.0)'
-        required: false
-        default: 'latest'
+        description: 'Version to release (e.g., 1.4.0)'
+        required: true
+        type: string
+
+env:
+  GCS_BUCKET: roi-agent-releases
+  GCP_PROJECT: teak-frame-465410-a0
+  CLOUDSQL_INSTANCE: roi-production
+  CLOUDSQL_CONNECTION: teak-frame-465410-a0:asia-northeast1:roi-production
 
 jobs:
-  build-and-upload:
+  build-and-release:
     runs-on: macos-latest
     
     permissions:
-      contents: read
+      contents: write
       id-token: write
     
     steps:
@@ -24,68 +30,33 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
-          cache-dependency-path: |
-            data-sender/go.sum
-            windows/go.sum
+          go-version: '1.23'
       
-      - name: Extract version
+      - name: Determine version
         id: version
         run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-          elif [[ "${{ github.event.inputs.version }}" != "" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
           else
-            VERSION="latest"
+            VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          VERSION=${VERSION#v}
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building version: ${VERSION}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION"
+      
+      - name: Update VERSION file
+        run: |
+          echo "${{ steps.version.outputs.VERSION }}" > VERSION
+          cat VERSION
       
       - name: Install dependencies
         run: |
-          # agent has no external dependencies, skip go mod download
           cd data-sender && go mod download
       
-      - name: Build binaries
+      - name: Build PKG files using build script
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          BUILD_DIR="build/binaries"
-          mkdir -p "$BUILD_DIR"
-          
-          echo "🔨 Building binaries..."
-          
-          # Agent - ARM64
-          cd agent
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "../$BUILD_DIR/roi-agent-arm64" main.go
-          chmod +x "../$BUILD_DIR/roi-agent-arm64"
-          
-          # Agent - x64
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "../$BUILD_DIR/roi-agent-x64" main.go
-          chmod +x "../$BUILD_DIR/roi-agent-x64"
-          
-          cd ..
-          
-          # Data Sender - ARM64
-          cd data-sender
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "../$BUILD_DIR/data-sender-arm64" .
-          chmod +x "../$BUILD_DIR/data-sender-arm64"
-          
-          # Data Sender - x64
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "../$BUILD_DIR/data-sender-x64" .
-          chmod +x "../$BUILD_DIR/data-sender-x64"
-          
-          cd ..
-          
-          echo "✅ All binaries built"
-          ls -lh "$BUILD_DIR"
-      
-      - name: Build PKG files (Latest, no version suffix)
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.VERSION }}"
           
           echo "📦 Building PKG files..."
           
@@ -103,7 +74,7 @@ jobs:
       
       - name: Create version info
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.VERSION }}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           COMMIT_SHA=$(git rev-parse --short HEAD)
           
@@ -124,19 +95,19 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      - name: Upload to Cloud Storage (Latest only)
+      - name: Upload to Cloud Storage
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          BUCKET="gs://roi-agent-releases"
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          BUCKET="gs://${GCS_BUCKET}"
           
-          echo "☁️  Uploading to Cloud Storage (Latest only)..."
+          echo "☁️  Uploading to Cloud Storage..."
           
-          # Upload PKG files without version suffix
+          # Upload PKG files to latest/
           echo "Uploading ARM64 PKG..."
           gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
@@ -145,11 +116,16 @@ jobs:
           gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
           
-          # Upload SHA256 checksums without version suffix
+          # Upload to versions/ for archiving
+          gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
+            ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-arm64.pkg
+          gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
+            ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-x64.pkg
+          
+          # Upload SHA256 checksums
           echo "Uploading checksums..."
           gsutil cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
-          
           gsutil cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
           
@@ -160,17 +136,14 @@ jobs:
           # Set content types
           gsutil setmeta -h "Content-Type:application/octet-stream" \
             ${BUCKET}/latest/macos/*.pkg
-          
           gsutil setmeta -h "Content-Type:text/plain" \
             ${BUCKET}/latest/macos/*.sha256
-          
           gsutil setmeta -h "Content-Type:application/json" \
             ${BUCKET}/latest/version.json
           
           # Set cache control (no caching for latest)
           gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
             ${BUCKET}/latest/macos/*.pkg
-          
           gsutil setmeta -h "Cache-Control:no-cache, no-store, must-revalidate" \
             ${BUCKET}/latest/version.json
           
@@ -178,7 +151,7 @@ jobs:
       
       - name: Verify upload
         run: |
-          BUCKET="gs://roi-agent-releases"
+          BUCKET="gs://${GCS_BUCKET}"
           echo "📁 Uploaded files:"
           echo ""
           echo "PKG Files:"
@@ -189,23 +162,103 @@ jobs:
           echo ""
           echo "✅ Verification complete"
       
+      - name: Install PostgreSQL client
+        run: |
+          brew install postgresql@15
+          echo "/opt/homebrew/opt/postgresql@15/bin" >> $GITHUB_PATH
+      
+      - name: Update CloudSQL via Cloud SQL Proxy
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          # Download Cloud SQL Proxy
+          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.darwin.arm64
+          chmod +x cloud-sql-proxy
+          
+          # Start Cloud SQL Proxy in background
+          ./cloud-sql-proxy --port 5432 "${CLOUDSQL_CONNECTION}" &
+          PROXY_PID=$!
+          
+          # Wait for proxy to be ready
+          sleep 10
+          
+          # Get checksums
+          ARM64_CHECKSUM=$(cat build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 | awk '{print $1}')
+          X64_CHECKSUM=$(cat build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 | awk '{print $1}')
+          
+          # Execute SQL
+          PGPASSWORD="${{ secrets.CLOUDSQL_PASSWORD }}" psql \
+            -h localhost \
+            -p 5432 \
+            -U admin \
+            -d postgres \
+            -c "
+            INSERT INTO agent_releases (
+                version,
+                macos_arm64_url,
+                macos_amd64_url,
+                macos_arm64_checksum,
+                macos_amd64_checksum,
+                is_latest,
+                release_notes,
+                published_at
+            ) VALUES (
+                '${VERSION}',
+                'https://storage.googleapis.com/${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg',
+                'https://storage.googleapis.com/${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg',
+                '${ARM64_CHECKSUM}',
+                '${X64_CHECKSUM}',
+                TRUE,
+                'Release ${VERSION}',
+                CURRENT_TIMESTAMP
+            ) ON CONFLICT (version) DO UPDATE SET 
+                is_latest = TRUE,
+                macos_arm64_url = EXCLUDED.macos_arm64_url,
+                macos_amd64_url = EXCLUDED.macos_amd64_url,
+                macos_arm64_checksum = EXCLUDED.macos_arm64_checksum,
+                macos_amd64_checksum = EXCLUDED.macos_amd64_checksum,
+                published_at = CURRENT_TIMESTAMP;
+            
+            UPDATE agent_releases SET is_latest = false WHERE version != '${VERSION}';
+            "
+          
+          # Stop proxy
+          kill $PROXY_PID
+          
+          echo "✅ CloudSQL updated"
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/pkg/ROI-Agent-macOS-arm64-${{ steps.version.outputs.VERSION }}.pkg
+            build/pkg/ROI-Agent-macOS-x64-${{ steps.version.outputs.VERSION }}.pkg
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Summary
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          echo "## 🎉 Build Complete" >> $GITHUB_STEP_SUMMARY
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "## 🎉 Release Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Artifacts (Latest)" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- \`ROI-Agent-macOS-arm64.pkg\` (Apple Silicon)" >> $GITHUB_STEP_SUMMARY
           echo "- \`ROI-Agent-macOS-x64.pkg\` (Intel)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ☁️ Cloud Storage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Files uploaded to: \`gs://roi-agent-releases/latest/\`" >> $GITHUB_STEP_SUMMARY
+          echo "Files uploaded to: \`gs://${GCS_BUCKET}/latest/\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔐 Distribution" >> $GITHUB_STEP_SUMMARY
+          echo "### 🗄️ Database" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "PKG files are distributed via **Dashboard API** with API key authentication" >> $GITHUB_STEP_SUMMARY
-          echo "Always serves the **latest version** without version numbers in filenames" >> $GITHUB_STEP_SUMMARY
+          echo "CloudSQL \`agent_releases\` table updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 GitHub Release" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Release created with PKG attachments" >> $GITHUB_STEP_SUMMARY
