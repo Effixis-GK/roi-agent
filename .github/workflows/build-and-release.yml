@@ -176,7 +176,7 @@ jobs:
             -h localhost \
             -p 5432 \
             -U admin \
-            -d postgres \
+            -d production \
             -c "
             INSERT INTO agent_releases (
                 version,
