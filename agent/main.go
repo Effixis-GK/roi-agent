@@ -243,20 +243,46 @@ func NewAgent() *Agent {
 		}
 	}
 
+	dataSenderPath := filepath.Join(installDir, "bin", "data-sender")
+	if _, err := os.Stat(dataSenderPath); err != nil {
+		dataSenderPath = filepath.Join(installDir, "data-sender", "data-sender")
+	}
+
 	// Check for cached remote config interval (from dashboard settings)
 	cachedConfigPath := filepath.Join(SharedConfigDir, "remote_config.json")
+	cacheExists := false
 	if data, err := ioutil.ReadFile(cachedConfigPath); err == nil {
 		var cache RemoteConfigCache
 		if err := json.Unmarshal(data, &cache); err == nil && cache.IntervalMinutes > 0 {
 			log.Printf("Using cached remote config interval: %d minutes", cache.IntervalMinutes)
 			intervalMinutes = cache.IntervalMinutes
+			cacheExists = true
 		}
 	}
 
-	dataSenderPath := filepath.Join(installDir, "bin", "data-sender")
-	if _, err := os.Stat(dataSenderPath); err != nil {
-		dataSenderPath = filepath.Join(installDir, "data-sender", "data-sender")
+	// If no cache exists, fetch remote config on startup
+	if !cacheExists {
+		log.Printf("No cached remote config found, fetching from server...")
+		if _, err := os.Stat(dataSenderPath); err == nil {
+			cmd := exec.Command(dataSenderPath, "fetch-config")
+			cmd.Dir = filepath.Dir(dataSenderPath)
+			cmd.Env = os.Environ()
+			if output, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("Failed to fetch remote config: %v, output: %s", err, string(output))
+			} else {
+				log.Printf("Remote config fetched successfully")
+				// Re-read the cached config after fetching
+				if data, err := ioutil.ReadFile(cachedConfigPath); err == nil {
+					var cache RemoteConfigCache
+					if err := json.Unmarshal(data, &cache); err == nil && cache.IntervalMinutes > 0 {
+						log.Printf("Using fetched remote config interval: %d minutes", cache.IntervalMinutes)
+						intervalMinutes = cache.IntervalMinutes
+					}
+				}
+			}
+		}
 	}
+
 	log.Printf("Data sender path: %s", dataSenderPath)
 
 	agent := &Agent{
