@@ -75,9 +75,20 @@ func CollectWiFiMetrics() (*WiFiMetrics, error) {
 		case "agrCtlNoise":
 			metrics.Noise, _ = strconv.Atoi(value)
 		case "SSID":
-			metrics.SSID = value
+			// macOS Sonoma以降、プライバシー保護によりSSIDが<redacted>として返される場合がある
+			// この場合は空文字列として記録する（プライバシー保護のため）
+			if value == "<redacted>" {
+				metrics.SSID = ""
+			} else {
+				metrics.SSID = value
+			}
 		case "BSSID":
-			metrics.BSSID = value
+			// BSSIDも同様にプライバシー保護でマスクされる場合がある
+			if value == "<redacted>" {
+				metrics.BSSID = ""
+			} else {
+				metrics.BSSID = value
+			}
 		case "channel":
 			// Channel might be like "36,80" (channel,width)
 			channelParts := strings.Split(value, ",")
