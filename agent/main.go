@@ -243,6 +243,16 @@ func NewAgent() *Agent {
 		}
 	}
 
+	// Check for cached remote config interval (from dashboard settings)
+	cachedConfigPath := filepath.Join(SharedConfigDir, "remote_config.json")
+	if data, err := ioutil.ReadFile(cachedConfigPath); err == nil {
+		var cache RemoteConfigCache
+		if err := json.Unmarshal(data, &cache); err == nil && cache.IntervalMinutes > 0 {
+			log.Printf("Using cached remote config interval: %d minutes", cache.IntervalMinutes)
+			intervalMinutes = cache.IntervalMinutes
+		}
+	}
+
 	dataSenderPath := filepath.Join(installDir, "bin", "data-sender")
 	if _, err := os.Stat(dataSenderPath); err != nil {
 		dataSenderPath = filepath.Join(installDir, "data-sender", "data-sender")

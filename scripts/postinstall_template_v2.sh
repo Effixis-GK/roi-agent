@@ -55,10 +55,18 @@ ROI_AGENT_API_KEY=$API_KEY
 ROI_AGENT_INTERVAL_MINUTES=10
 EOF
 
-chmod 600 "$ENV_FILE"
-chown root:wheel "$ENV_FILE"
+# Set readable permissions so data-sender can read when run as user
+chmod 644 "$ENV_FILE"
+chown root:staff "$ENV_FILE"
 
-echo "✅ Configuration file created"
+echo "✅ Configuration file created (readable by all users)"
+
+# Also create a config in shared directory for user-level access
+SHARED_ENV_FILE="$SHARED_CONFIG_DIR/.env"
+cp "$ENV_FILE" "$SHARED_ENV_FILE"
+chmod 644 "$SHARED_ENV_FILE"
+
+echo "✅ Shared configuration file created"
 
 # LaunchDaemonをロード（root権限で動作）
 echo "Loading LaunchDaemon as root..."

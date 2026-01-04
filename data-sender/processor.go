@@ -57,6 +57,15 @@ func NewDataSender() *DataSender {
 	// Initialize remote config poller
 	sender.configPoller = NewConfigPoller(&sender.config)
 	
+	// Apply cached remote config interval if available (from dashboard settings)
+	if sender.configPoller != nil {
+		effectiveInterval := sender.configPoller.GetEffectiveIntervalMinutes()
+		if effectiveInterval != sender.intervalMinutes {
+			log.Printf("Using cached remote config interval: %d minutes", effectiveInterval)
+			sender.intervalMinutes = effectiveInterval
+		}
+	}
+	
 	return sender
 }
 
@@ -575,6 +584,7 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 }
 
 // saveTransmissionData saves the transmission data to local folder
+// Also saves to shared directory for easier access when running as LaunchDaemon
 func (ds *DataSender) saveTransmissionData(payload TransmissionPayload, startTime time.Time) error {
 	timestamp := startTime.Format("20060102_150405")
 	filename := fmt.Sprintf("transmission_%s.json", timestamp)
@@ -585,7 +595,24 @@ func (ds *DataSender) saveTransmissionData(payload TransmissionPayload, startTim
 		return err
 	}
 
-	return ioutil.WriteFile(filePath, data, 0644)
+	// Save to primary location (user or root home directory)
+	if err := ioutil.WriteFile(filePath, data, 0644); err != nil {
+		log.Printf("Warning: Failed to save to primary location %s: %v", filePath, err)
+	}
+
+	// Also save to shared directory for easier access
+	// This allows verification scripts to find the data regardless of which user ran the agent
+	sharedTransmissionDir := "/var/lib/roiagent/transmission"
+	if err := os.MkdirAll(sharedTransmissionDir, 0755); err == nil {
+		sharedFilePath := filepath.Join(sharedTransmissionDir, filename)
+		if err := ioutil.WriteFile(sharedFilePath, data, 0644); err != nil {
+			log.Printf("Warning: Failed to save to shared location %s: %v", sharedFilePath, err)
+		} else {
+			log.Printf("Transmission data saved to shared location: %s", sharedFilePath)
+		}
+	}
+
+	return nil
 }
 
 // SendInitialRegistration sends an initial registration payload with device info and version
