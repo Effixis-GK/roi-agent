@@ -113,13 +113,22 @@
 
 | メトリック名 | 型 | 単位 | 説明 | 取得方法 |
 |-------------|---|------|------|---------|
-| `wifi_ssid` | string | - | 接続中のネットワーク名 | `airport -I` |
+| `wifi_ssid` | string | - | ~~接続中のネットワーク名~~ **収集しない** | - |
+| `wifi_bssid` | string | - | ~~アクセスポイントMAC~~ **収集しない** | - |
 | `wifi_rssi` | int | dBm | 信号強度（-30〜-90） | `airport -I` |
 | `wifi_noise` | int | dBm | ノイズレベル | `airport -I` |
 | `wifi_channel` | int | - | 使用チャンネル | `airport -I` |
 | `wifi_transmit_rate` | float64 | Mbps | 転送レート | `airport -I` |
 | `wifi_phy_mode` | string | - | PHYモード（802.11n/ac/ax） | 推定値 |
 | `wifi_signal_quality` | string | - | 信号品質（Excellent/Good/Fair/Poor） | 計算値 |
+
+> ⚠️ **SSID/BSSIDの非収集について**
+> 
+> macOS Sonoma (14) 以降、プライバシー保護のためOSがSSID/BSSIDを`<redacted>`としてマスクします。
+> これはLocation Services APIを使用しないと取得できませんが、バックグラウンドサービスでは許可を得ることが困難なため、
+> **roi-agentではSSIDおよびBSSIDを収集しない方針**としました。
+> 
+> 詳細は [PRIVACY.md](./PRIVACY.md) を参照してください。
 
 **信号品質の判定基準**:
 | RSSI | 品質 |
