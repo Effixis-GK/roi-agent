@@ -53,10 +53,11 @@ ROI_AGENT_API_KEY=$API_KEY
 ROI_AGENT_INTERVAL_MINUTES=10
 EOF
 
-chmod 600 "$ENV_FILE"
+# Set readable permissions so data-sender can read when run as user
+chmod 644 "$ENV_FILE"
 chown "$CURRENT_USER:staff" "$ENV_FILE"
 
-echo "✅ Configuration file created"
+echo "✅ Configuration file created (readable by user)"
 
 # LaunchAgentをロード
 echo "Loading LaunchAgent..."
