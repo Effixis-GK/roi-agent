@@ -65,7 +65,7 @@ cd "$PROJECT_ROOT"
 # 3. .env.template
 cat > "$RESOURCES_DIR/.env.template" << 'EOF'
 # ROI Agent Configuration
-ROI_AGENT_BASE_URL=https://test-607617540267.asia-northeast1.run.app/api/v1/device
+ROI_AGENT_BASE_URL=https://data-collection-gcp-607617540267.asia-northeast1.run.app/api/v1/device
 ROI_AGENT_API_KEY=YOUR_API_KEY_HERE
 ROI_AGENT_INTERVAL_MINUTES=10
 ROI_AGENT_ENABLED=true
