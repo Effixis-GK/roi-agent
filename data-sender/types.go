@@ -6,11 +6,12 @@ import (
 
 // AppData represents application usage data for transmission
 type AppData struct {
-	ActiveApp        string `json:"active_app"`
-	FocusedApp       string `json:"focused_app"`
-	FocusTimeSeconds int    `json:"focus_time_seconds"`      // フロントで見ていた時間
-	ForegroundTimeSeconds int `json:"foreground_time_seconds"` // アプリの起動時間（追加）
-	Timestamp        string `json:"timestamp"`
+	ActiveApp             string `json:"active_app"`
+	FocusedApp            string `json:"focused_app"`
+	FocusTimeSeconds      int    `json:"focus_time_seconds"`      // フロントで見ていた時間
+	ForegroundTimeSeconds int    `json:"foreground_time_seconds"` // アプリの起動時間（追加）
+	IdleTimeSeconds       int    `json:"idle_time_seconds"`       // アイドル時間（追加）
+	Timestamp             string `json:"timestamp"`
 }
 
 // NetworkData represents network access data for transmission
@@ -229,6 +230,7 @@ type AppUsage struct {
 	Name           string    `json:"name"`
 	ForegroundTime int64     `json:"foreground_time"`  // アプリの起動時間
 	FocusTime      int64     `json:"focus_time"`       // フロントで見ていた時間
+	IdleTime       int64     `json:"idle_time"`        // アイドル時間
 	LastSeen       time.Time `json:"last_seen"`
 	IsActive       bool      `json:"is_active"`
 	IsFocused      bool      `json:"is_focused"`

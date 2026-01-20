@@ -44,6 +44,7 @@ type AppUsage struct {
 	ForegroundTime int64     `json:"foreground_time"`
 	BackgroundTime int64     `json:"background_time"`
 	FocusTime      int64     `json:"focus_time"`
+	IdleTime       int64     `json:"idle_time"`
 	LastSeen       time.Time `json:"last_seen"`
 	IsActive       bool      `json:"is_active"`
 	IsFocused      bool      `json:"is_focused"`
@@ -1741,6 +1742,12 @@ func (a *Agent) updateAppUsage() {
 		return
 	}
 
+	// Get system idle time
+	systemIdleTime, _, err := a.getSystemIdleTime()
+	if err != nil {
+		systemIdleTime = 0
+	}
+
 	for _, appData := range a.combinedData.Apps {
 		appData.IsActive = false
 		appData.IsFocused = false
@@ -1757,17 +1764,27 @@ func (a *Agent) updateAppUsage() {
 
 			if isFocused {
 				appData.FocusTime += interval
+				// Record idle time only when app is focused and system is idle >= 15s
+				if systemIdleTime >= 15 {
+					appData.IdleTime += interval
+				}
 			}
 		} else {
 			focusTime := int64(0)
+			idleTime := int64(0)
 			if isFocused {
 				focusTime = interval
+				// Record idle time for new focused app if system is idle
+				if systemIdleTime >= 15 {
+					idleTime = interval
+				}
 			}
 
 			a.combinedData.Apps[appName] = &AppUsage{
 				Name:           appName,
 				ForegroundTime: interval,
 				FocusTime:      focusTime,
+				IdleTime:       idleTime,
 				LastSeen:       currentTime,
 				IsActive:       true,
 				IsFocused:      isFocused,

@@ -439,6 +439,7 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 			FocusedApp:            focusedApp,                  // Only set if actually focused
 			FocusTimeSeconds:      int(appInfo.FocusTime),      // フォーカス時間（操作時間）
 			ForegroundTimeSeconds: int(appInfo.ForegroundTime), // 起動時間（バックグラウンド含む）
+			IdleTimeSeconds:       int(appInfo.IdleTime),       // アイドル時間
 			Timestamp:             timestamp,
 		}
 
