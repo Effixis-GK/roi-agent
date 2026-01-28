@@ -301,11 +301,12 @@ func (ds *DataSender) loadDataForInterval(startTime, endTime time.Time) (*Combin
 // filterDataForInterval filters data to only include activity within the specified interval
 func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTime time.Time) *CombinedData {
 	filtered := &CombinedData{
-		Date:           data.Date,
-		Apps:           make(map[string]*AppUsage),
-		Network:        make(map[string]*NetworkConn),
-		SystemMetrics:  make([]*SystemMetricsLocal, 0),
-		ProcessMetrics: make([]*ProcessMetricsLocal, 0),
+		Date:            data.Date,
+		Apps:            make(map[string]*AppUsage),
+		Network:         make(map[string]*NetworkConn),
+		SystemMetrics:   make([]*SystemMetricsLocal, 0),
+		ProcessMetrics:  make([]*ProcessMetricsLocal, 0),
+		CollectionStats: data.CollectionStats, // Preserve collection stats
 	}
 
 	// 累積データをそのまま使用（10分間の累積データとして扱う）
@@ -315,6 +316,8 @@ func (ds *DataSender) filterDataForInterval(data *CombinedData, startTime, endTi
 				Name:           appInfo.Name,
 				ForegroundTime: appInfo.ForegroundTime,
 				FocusTime:      appInfo.FocusTime,
+				IdleTime:       appInfo.IdleTime,
+				SwitchCount:    appInfo.SwitchCount, // Include switch count
 				LastSeen:       appInfo.LastSeen,
 				IsActive:       appInfo.IsActive,
 				IsFocused:      appInfo.IsFocused,
@@ -421,6 +424,12 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 		ProcessMetrics: make([]ProcessMetricsData, 0),
 	}
 
+	// Get collection stats for collaboration mode
+	collaborationMode := false
+	if data.CollectionStats != nil {
+		collaborationMode = data.CollectionStats.CollaborationMode
+	}
+
 	// Process application data - send ALL apps with their individual focus times
 	for appName, appInfo := range data.Apps {
 		// Skip apps with no activity
@@ -434,18 +443,29 @@ func (ds *DataSender) createIntervalTransmissionPayload(data *CombinedData, star
 			focusedApp = appName
 		}
 
+		// Calculate deep work duration: focus time when not in collaboration mode
+		// Deep work = focused time on a single app without switching frequently
+		deepWorkDuration := 0
+		if !collaborationMode && appInfo.FocusTime > 0 {
+			deepWorkDuration = int(appInfo.FocusTime)
+		}
+
 		appData := AppData{
 			ActiveApp:             appName,
 			FocusedApp:            focusedApp,                  // Only set if actually focused
 			FocusTimeSeconds:      int(appInfo.FocusTime),      // フォーカス時間（操作時間）
 			ForegroundTimeSeconds: int(appInfo.ForegroundTime), // 起動時間（バックグラウンド含む）
+			IdleTimeSeconds:       int(appInfo.IdleTime),       // アイドル時間
+			AppSwitchCount:        appInfo.SwitchCount,         // P0-1: アプリ切り替え回数
+			CollaborationMode:     collaborationMode,           // P0-2: コラボレーションモード
+			DeepWorkDuration:      deepWorkDuration,            // P0-3: ディープワーク時間
 			Timestamp:             timestamp,
 		}
 
 		payload.Apps = append(payload.Apps, appData)
 
 		if focusedApp != "" {
-			log.Printf("  Including app: %s (focus: %ds, foreground: %ds)", appName, appInfo.FocusTime, appInfo.ForegroundTime)
+			log.Printf("  Including app: %s (focus: %ds, foreground: %ds, switches: %d)", appName, appInfo.FocusTime, appInfo.ForegroundTime, appInfo.SwitchCount)
 		} else {
 			log.Printf("  Including app: %s (foreground only: %ds, no focus)", appName, appInfo.ForegroundTime)
 		}

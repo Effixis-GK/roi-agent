@@ -44,6 +44,7 @@ type AppUsage struct {
 	ForegroundTime int64     `json:"foreground_time"`
 	BackgroundTime int64     `json:"background_time"`
 	FocusTime      int64     `json:"focus_time"`
+	SwitchCount    int       `json:"switch_count"` // Number of times this app gained focus
 	LastSeen       time.Time `json:"last_seen"`
 	IsActive       bool      `json:"is_active"`
 	IsFocused      bool      `json:"is_focused"`
@@ -124,14 +125,22 @@ type ProcessMetrics struct {
 	Timestamp  time.Time `json:"timestamp"`
 }
 
+// CollectionStats represents collection period statistics
+type CollectionStats struct {
+	SystemIdleSeconds int64 `json:"system_idle_seconds"` // Total system idle time during collection period
+	CollaborationMode bool  `json:"collaboration_mode"`  // Whether user is in a collaboration tool (Zoom, Teams, etc.)
+	TotalSwitchCount  int   `json:"total_switch_count"`  // Total app switches during collection period
+}
+
 // CombinedData represents combined application and network usage data
 type CombinedData struct {
-	Date           string                        `json:"date"`
-	Apps           map[string]*AppUsage          `json:"apps"`
-	Network        map[string]*NetworkConnection `json:"network"`
-	SystemMetrics  []*SystemMetrics              `json:"system_metrics"`
-	ProcessMetrics []*ProcessMetrics             `json:"process_metrics"`
-	AppTotal       struct {
+	Date            string                        `json:"date"`
+	Apps            map[string]*AppUsage          `json:"apps"`
+	Network         map[string]*NetworkConnection `json:"network"`
+	SystemMetrics   []*SystemMetrics              `json:"system_metrics"`
+	ProcessMetrics  []*ProcessMetrics             `json:"process_metrics"`
+	CollectionStats *CollectionStats              `json:"collection_stats"` // System-level statistics
+	AppTotal        struct {
 		ForegroundTime int64 `json:"foreground_time"`
 		BackgroundTime int64 `json:"background_time"`
 		FocusTime      int64 `json:"focus_time"`
@@ -200,6 +209,7 @@ type Agent struct {
 	lastTransmission     time.Time
 	transmissionInterval time.Duration
 	dataSenderPath       string
+	lastFocusedApp       string // Tracks the previously focused app for switch detection
 }
 
 // NewAgent creates a new monitoring agent
@@ -308,6 +318,11 @@ func (a *Agent) initCombinedData() {
 		Network:        make(map[string]*NetworkConnection),
 		SystemMetrics:  make([]*SystemMetrics, 0),
 		ProcessMetrics: make([]*ProcessMetrics, 0),
+		CollectionStats: &CollectionStats{
+			SystemIdleSeconds: 0,
+			CollaborationMode: false,
+			TotalSwitchCount:  0,
+		},
 	}
 	log.Printf("Initialized fresh agent data for %s", today)
 }
@@ -1741,6 +1756,48 @@ func (a *Agent) updateAppUsage() {
 		return
 	}
 
+	// Get system idle time (HIDIdleTime is accurate ±1 second on macOS)
+	systemIdleTime, _, err := a.getSystemIdleTime()
+	if err != nil {
+		systemIdleTime = 0
+	}
+
+	// Update system-level idle time in CollectionStats
+	// Only accumulate when system is actually idle (>= 15 seconds threshold)
+	if systemIdleTime >= 15 {
+		a.combinedData.CollectionStats.SystemIdleSeconds += interval
+	}
+
+	// Check for collaboration mode (Zoom, Teams, Slack, etc.)
+	collaborationApps := map[string]bool{
+		"zoom.us": true, "Zoom": true,
+		"Microsoft Teams": true, "Teams": true,
+		"Slack": true,
+		"Google Meet": true,
+		"FaceTime": true,
+		"Webex": true, "Cisco Webex": true,
+	}
+	inCollaboration := false
+	for appName := range runningApps {
+		if collaborationApps[appName] {
+			inCollaboration = true
+			break
+		}
+	}
+	a.combinedData.CollectionStats.CollaborationMode = inCollaboration
+
+	// Detect app switch (focus changed to a different app)
+	if frontmostApp != "" && frontmostApp != a.lastFocusedApp {
+		if a.lastFocusedApp != "" { // Ignore first detection
+			a.combinedData.CollectionStats.TotalSwitchCount++
+		}
+		// Increment switch count for the newly focused app
+		if appData, exists := a.combinedData.Apps[frontmostApp]; exists {
+			appData.SwitchCount++
+		}
+		a.lastFocusedApp = frontmostApp
+	}
+
 	for _, appData := range a.combinedData.Apps {
 		appData.IsActive = false
 		appData.IsFocused = false
@@ -1760,14 +1817,20 @@ func (a *Agent) updateAppUsage() {
 			}
 		} else {
 			focusTime := int64(0)
+			switchCount := 0
 			if isFocused {
 				focusTime = interval
+				// New app gaining focus counts as a switch
+				if a.lastFocusedApp != "" && a.lastFocusedApp != appName {
+					switchCount = 1
+				}
 			}
 
 			a.combinedData.Apps[appName] = &AppUsage{
 				Name:           appName,
 				ForegroundTime: interval,
 				FocusTime:      focusTime,
+				SwitchCount:    switchCount,
 				LastSeen:       currentTime,
 				IsActive:       true,
 				IsFocused:      isFocused,

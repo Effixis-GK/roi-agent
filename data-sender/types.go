@@ -6,11 +6,15 @@ import (
 
 // AppData represents application usage data for transmission
 type AppData struct {
-	ActiveApp        string `json:"active_app"`
-	FocusedApp       string `json:"focused_app"`
-	FocusTimeSeconds int    `json:"focus_time_seconds"`      // フロントで見ていた時間
-	ForegroundTimeSeconds int `json:"foreground_time_seconds"` // アプリの起動時間（追加）
-	Timestamp        string `json:"timestamp"`
+	ActiveApp             string `json:"active_app"`
+	FocusedApp            string `json:"focused_app"`
+	FocusTimeSeconds      int    `json:"focus_time_seconds"`      // フロントで見ていた時間
+	ForegroundTimeSeconds int    `json:"foreground_time_seconds"` // アプリの起動時間（追加）
+	IdleTimeSeconds       int    `json:"idle_time_seconds"`       // アイドル時間（追加）
+	AppSwitchCount        int    `json:"app_switch_count"`        // P0-1: アプリ切り替え回数
+	CollaborationMode     bool   `json:"collaboration_mode"`      // P0-2: コラボレーションモード
+	DeepWorkDuration      int    `json:"deep_work_duration"`      // P0-3: ディープワーク時間（秒）
+	Timestamp             string `json:"timestamp"`
 }
 
 // NetworkData represents network access data for transmission
@@ -131,14 +135,22 @@ type TransmissionLog struct {
 	PayloadSize int       `json:"payload_size"`
 }
 
+// CollectionStats represents collection period statistics
+type CollectionStats struct {
+	SystemIdleSeconds int64 `json:"system_idle_seconds"` // Total system idle time during collection period
+	CollaborationMode bool  `json:"collaboration_mode"`  // Whether user is in a collaboration tool
+	TotalSwitchCount  int   `json:"total_switch_count"`  // Total app switches during collection period
+}
+
 // CombinedData represents the local data structure (matching main.go)
 type CombinedData struct {
-	Date           string                     `json:"date"`
-	Apps           map[string]*AppUsage       `json:"apps"`
-	Network        map[string]*NetworkConn    `json:"network"`
-	SystemMetrics  []*SystemMetricsLocal       `json:"system_metrics"`
-	ProcessMetrics []*ProcessMetricsLocal     `json:"process_metrics"`
-	AppTotal       struct {
+	Date            string                     `json:"date"`
+	Apps            map[string]*AppUsage       `json:"apps"`
+	Network         map[string]*NetworkConn    `json:"network"`
+	SystemMetrics   []*SystemMetricsLocal       `json:"system_metrics"`
+	ProcessMetrics  []*ProcessMetricsLocal     `json:"process_metrics"`
+	CollectionStats *CollectionStats           `json:"collection_stats"` // System-level statistics
+	AppTotal        struct {
 		ForegroundTime int64 `json:"foreground_time"`
 		BackgroundTime int64 `json:"background_time"`
 		FocusTime      int64 `json:"focus_time"`
@@ -229,6 +241,8 @@ type AppUsage struct {
 	Name           string    `json:"name"`
 	ForegroundTime int64     `json:"foreground_time"`  // アプリの起動時間
 	FocusTime      int64     `json:"focus_time"`       // フロントで見ていた時間
+	IdleTime       int64     `json:"idle_time"`        // アイドル時間
+	SwitchCount    int       `json:"switch_count"`     // アプリ切り替え回数
 	LastSeen       time.Time `json:"last_seen"`
 	IsActive       bool      `json:"is_active"`
 	IsFocused      bool      `json:"is_focused"`
