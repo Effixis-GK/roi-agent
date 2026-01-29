@@ -169,48 +169,53 @@ jobs:
       - name: Upload to Cloud Storage
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
+          ENV="${{ steps.cloudsql.outputs.ENV }}"
           BUCKET="gs://${GCS_BUCKET}"
 
-          echo "☁️  Uploading to Cloud Storage..."
+          echo "☁️  Uploading to Cloud Storage (${ENV})..."
 
           # Use gcloud storage instead of gsutil (fewer permission requirements)
-          # Upload PKG files to latest/
-          echo "Uploading ARM64 PKG..."
+          # Upload PKG files to {ENV}/latest/
+          echo "Uploading ARM64 PKG to ${ENV}/latest/..."
           gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
+            ${BUCKET}/${ENV}/latest/macos/ROI-Agent-macOS-arm64.pkg
 
-          echo "Uploading x64 PKG..."
+          echo "Uploading x64 PKG to ${ENV}/latest/..."
           gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
+            ${BUCKET}/${ENV}/latest/macos/ROI-Agent-macOS-x64.pkg
 
-          # Upload to versions/ for archiving
+          # Upload to {ENV}/versions/ for archiving
           gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
-            ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-arm64.pkg
+            ${BUCKET}/${ENV}/versions/${VERSION}/macos/ROI-Agent-macOS-arm64.pkg
           gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
-            ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-x64.pkg
+            ${BUCKET}/${ENV}/versions/${VERSION}/macos/ROI-Agent-macOS-x64.pkg
 
           # Upload SHA256 checksums
           echo "Uploading checksums..."
           gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
+            ${BUCKET}/${ENV}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
           gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 \
-            ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
+            ${BUCKET}/${ENV}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
 
           # Upload version info
           echo "Uploading version info..."
-          gcloud storage cp build/version.json ${BUCKET}/latest/version.json
+          gcloud storage cp build/version.json ${BUCKET}/${ENV}/latest/version.json
 
-          echo "✅ Upload complete"
+          echo "✅ Upload complete to ${ENV}/latest/"
 
       - name: Verify upload
         run: |
+          ENV="${{ steps.cloudsql.outputs.ENV }}"
           BUCKET="gs://${GCS_BUCKET}"
-          echo "📁 Verifying uploaded files..."
+          echo "📁 Verifying uploaded files (${ENV})..."
           echo ""
           echo "Version Info:"
-          gcloud storage cat "${BUCKET}/latest/version.json"
+          gcloud storage cat "${BUCKET}/${ENV}/latest/version.json"
           echo ""
-          echo "✅ Verification complete (files uploaded successfully)"
+          echo "Files in ${ENV}/latest/macos/:"
+          gcloud storage ls -l "${BUCKET}/${ENV}/latest/macos/"
+          echo ""
+          echo "✅ Verification complete (files uploaded to ${ENV}/latest/)"
 
       - name: Install PostgreSQL client
         run: |
@@ -220,6 +225,7 @@ jobs:
       - name: Update CloudSQL via Cloud SQL Proxy
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
+          ENV="${{ steps.cloudsql.outputs.ENV }}"
 
           # Download Cloud SQL Proxy
           curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.darwin.arm64
@@ -254,8 +260,8 @@ jobs:
                 published_at
             ) VALUES (
                 '${VERSION}',
-                'https://storage.googleapis.com/${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg',
-                'https://storage.googleapis.com/${GCS_BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg',
+                'https://storage.googleapis.com/${GCS_BUCKET}/${ENV}/latest/macos/ROI-Agent-macOS-arm64.pkg',
+                'https://storage.googleapis.com/${GCS_BUCKET}/${ENV}/latest/macos/ROI-Agent-macOS-x64.pkg',
                 '${ARM64_CHECKSUM}',
                 '${X64_CHECKSUM}',
                 TRUE,
@@ -314,7 +320,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ☁️ Cloud Storage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Files uploaded to: \`gs://${GCS_BUCKET}/latest/\`" >> $GITHUB_STEP_SUMMARY
+          echo "Files uploaded to: \`gs://${GCS_BUCKET}/${ENV}/latest/\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🗄️ Database" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
