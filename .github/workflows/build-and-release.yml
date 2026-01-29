@@ -10,12 +10,19 @@ on:
         description: 'Version to release (e.g., 1.4.0)'
         required: true
         type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - development
 
 env:
   GCS_BUCKET: roi-agent-releases
   GCP_PROJECT: teak-frame-465410-a0
-  CLOUDSQL_INSTANCE: roi-production
-  CLOUDSQL_CONNECTION: teak-frame-465410-a0:asia-northeast1:roi-production
+  # Cloud SQL instance is set dynamically based on environment
 
 jobs:
   build-and-release:
@@ -26,6 +33,29 @@ jobs:
       id-token: write
     
     steps:
+      - name: Set Cloud SQL instance
+        id: cloudsql
+        run: |
+          # タグpushの場合はproduction、workflow_dispatchの場合は選択された環境
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENV="${{ inputs.environment }}"
+          else
+            ENV="production"
+          fi
+
+          if [ "$ENV" == "development" ]; then
+            echo "CLOUDSQL_INSTANCE=roi-development" >> $GITHUB_OUTPUT
+            echo "CLOUDSQL_CONNECTION=teak-frame-465410-a0:asia-northeast1:roi-development" >> $GITHUB_OUTPUT
+            echo "DB_NAME=development" >> $GITHUB_OUTPUT
+          else
+            echo "CLOUDSQL_INSTANCE=roi-production" >> $GITHUB_OUTPUT
+            echo "CLOUDSQL_CONNECTION=teak-frame-465410-a0:asia-northeast1:roi-production" >> $GITHUB_OUTPUT
+            echo "DB_NAME=production" >> $GITHUB_OUTPUT
+          fi
+
+          echo "🎯 Target environment: $ENV"
+          echo "📦 Cloud SQL instance: $(if [ "$ENV" == "development" ]; then echo roi-development; else echo roi-production; fi)"
+
       - name: Checkout code
         uses: actions/checkout@v4
       
@@ -155,28 +185,28 @@ jobs:
       - name: Update CloudSQL via Cloud SQL Proxy
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          
+
           # Download Cloud SQL Proxy
           curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.darwin.arm64
           chmod +x cloud-sql-proxy
-          
+
           # Start Cloud SQL Proxy in background
-          ./cloud-sql-proxy --port 5432 "${CLOUDSQL_CONNECTION}" &
+          ./cloud-sql-proxy --port 5432 "${{ steps.cloudsql.outputs.CLOUDSQL_CONNECTION }}" &
           PROXY_PID=$!
-          
+
           # Wait for proxy to be ready
           sleep 10
-          
+
           # Get checksums
           ARM64_CHECKSUM=$(cat build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 | awk '{print $1}')
           X64_CHECKSUM=$(cat build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 | awk '{print $1}')
-          
+
           # Execute SQL
           PGPASSWORD="${{ secrets.CLOUDSQL_PASSWORD }}" psql \
             -h localhost \
             -p 5432 \
             -U admin \
-            -d production \
+            -d "${{ steps.cloudsql.outputs.DB_NAME }}" \
             -c "
             INSERT INTO agent_releases (
                 version,
