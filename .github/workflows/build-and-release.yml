@@ -2,13 +2,17 @@ name: Build and Release ROI Agent
 
 on:
   push:
-    tags:
-      - 'v*.*.*'  # v1.4.0 などのタグでトリガー
+    branches:
+      - main      # production環境
+      - develop   # development環境
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 1.4.0)'
-        required: true
+        description: 'Version to release (leave empty for auto-increment)'
+        required: false
         type: string
       environment:
         description: 'Target environment'
@@ -27,22 +31,33 @@ env:
 jobs:
   build-and-release:
     runs-on: macos-latest
-    
+
     permissions:
       contents: write
       id-token: write
-    
+
     steps:
-      - name: Set Cloud SQL instance
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set environment and Cloud SQL
         id: cloudsql
         run: |
-          # タグpushの場合はproduction、workflow_dispatchの場合は選択された環境
+          # 環境決定: ブランチベース or 手動選択
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             ENV="${{ inputs.environment }}"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="production"
+          elif [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+            ENV="development"
           else
             ENV="production"
           fi
 
+          # Cloud SQL設定
           if [ "$ENV" == "development" ]; then
             echo "CLOUDSQL_INSTANCE=roi-development" >> $GITHUB_OUTPUT
             echo "CLOUDSQL_CONNECTION=teak-frame-465410-a0:asia-northeast1:roi-development" >> $GITHUB_OUTPUT
@@ -53,61 +68,81 @@ jobs:
             echo "DB_NAME=production" >> $GITHUB_OUTPUT
           fi
 
+          echo "ENV=$ENV" >> $GITHUB_OUTPUT
           echo "🎯 Target environment: $ENV"
-          echo "📦 Cloud SQL instance: $(if [ "$ENV" == "development" ]; then echo roi-development; else echo roi-production; fi)"
+          echo "📦 Cloud SQL: roi-$ENV"
 
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-      
+
       - name: Determine version
         id: version
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          # VERSIONファイルから現在のバージョンを読み取り
+          CURRENT_VERSION=$(cat VERSION)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            # 手動指定があればそれを使用
             VERSION="${{ inputs.version }}"
           else
-            VERSION="${GITHUB_REF#refs/tags/v}"
+            # 自動インクリメント（パッチバージョン+1）
+            MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+            MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+            NEW_PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
           fi
+
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Releasing version: $VERSION"
-      
+          echo "📦 Releasing version: $VERSION"
+
       - name: Update VERSION file
         run: |
-          echo "${{ steps.version.outputs.VERSION }}" > VERSION
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "$VERSION" > VERSION
           cat VERSION
-      
+
+      - name: Commit VERSION update
+        if: github.event_name == 'push'
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git diff --staged --quiet || git commit -m "chore: bump version to $VERSION [skip ci]"
+          git push
+
       - name: Install dependencies
         run: |
           cd data-sender && go mod download
-      
+
       - name: Build PKG files using build script
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          
+
           echo "📦 Building PKG files..."
-          
+
           # Make build script executable
           chmod +x scripts/build_pkg.sh
-          
+
           # Build ARM64 PKG
           ./scripts/build_pkg.sh $VERSION arm64
-          
+
           # Build x64 PKG
           ./scripts/build_pkg.sh $VERSION x64
-          
+
           echo "✅ PKG files created"
           ls -lh build/pkg/
-      
+
       - name: Create version info
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           COMMIT_SHA=$(git rev-parse --short HEAD)
-          
+
           cat > build/version.json << EOF
           {
             "version": "${VERSION}",
@@ -118,55 +153,55 @@ jobs:
             "distribution_method": "authenticated_api"
           }
           EOF
-          
+
           cat build/version.json
-      
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
           project_id: ${{ env.GCP_PROJECT }}
-      
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
-      
+
       - name: Upload to Cloud Storage
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           BUCKET="gs://${GCS_BUCKET}"
-          
+
           echo "☁️  Uploading to Cloud Storage..."
-          
+
           # Use gcloud storage instead of gsutil (fewer permission requirements)
           # Upload PKG files to latest/
           echo "Uploading ARM64 PKG..."
           gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg
-          
+
           echo "Uploading x64 PKG..."
           gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg
-          
+
           # Upload to versions/ for archiving
           gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg \
             ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-arm64.pkg
           gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg \
             ${BUCKET}/versions/${VERSION}/macos/ROI-Agent-macOS-x64.pkg
-          
+
           # Upload SHA256 checksums
           echo "Uploading checksums..."
           gcloud storage cp build/pkg/ROI-Agent-macOS-arm64-${VERSION}.pkg.sha256 \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-arm64.pkg.sha256
           gcloud storage cp build/pkg/ROI-Agent-macOS-x64-${VERSION}.pkg.sha256 \
             ${BUCKET}/latest/macos/ROI-Agent-macOS-x64.pkg.sha256
-          
+
           # Upload version info
           echo "Uploading version info..."
           gcloud storage cp build/version.json ${BUCKET}/latest/version.json
-          
+
           echo "✅ Upload complete"
-      
+
       - name: Verify upload
         run: |
           BUCKET="gs://${GCS_BUCKET}"
@@ -176,12 +211,12 @@ jobs:
           gcloud storage cat "${BUCKET}/latest/version.json"
           echo ""
           echo "✅ Verification complete (files uploaded successfully)"
-      
+
       - name: Install PostgreSQL client
         run: |
           brew install postgresql@15
           echo "/opt/homebrew/opt/postgresql@15/bin" >> $GITHUB_PATH
-      
+
       - name: Update CloudSQL via Cloud SQL Proxy
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
@@ -226,25 +261,34 @@ jobs:
                 TRUE,
                 'Release ${VERSION}',
                 CURRENT_TIMESTAMP
-            ) ON CONFLICT (version) DO UPDATE SET 
+            ) ON CONFLICT (version) DO UPDATE SET
                 is_latest = TRUE,
                 macos_arm64_url = EXCLUDED.macos_arm64_url,
                 macos_amd64_url = EXCLUDED.macos_amd64_url,
                 macos_arm64_checksum = EXCLUDED.macos_arm64_checksum,
                 macos_amd64_checksum = EXCLUDED.macos_amd64_checksum,
                 published_at = CURRENT_TIMESTAMP;
-            
+
             UPDATE agent_releases SET is_latest = false WHERE version != '${VERSION}';
             "
-          
+
           # Stop proxy
           kill $PROXY_PID
-          
+
           echo "✅ CloudSQL updated"
-      
+
+      - name: Create Git tag
+        if: steps.cloudsql.outputs.ENV == 'production'
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
       - name: Create GitHub Release
+        if: steps.cloudsql.outputs.ENV == 'production'
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
           files: |
             build/pkg/ROI-Agent-macOS-arm64-${{ steps.version.outputs.VERSION }}.pkg
             build/pkg/ROI-Agent-macOS-x64-${{ steps.version.outputs.VERSION }}.pkg
@@ -253,13 +297,15 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Summary
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
+          ENV="${{ steps.cloudsql.outputs.ENV }}"
           echo "## 🎉 Release Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${ENV}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -272,8 +318,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🗄️ Database" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "CloudSQL \`agent_releases\` table updated" >> $GITHUB_STEP_SUMMARY
+          echo "CloudSQL \`${{ steps.cloudsql.outputs.CLOUDSQL_INSTANCE }}\` updated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📝 GitHub Release" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Release created with PKG attachments" >> $GITHUB_STEP_SUMMARY
+          if [ "$ENV" == "production" ]; then
+            echo "### 📝 GitHub Release" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Release v${VERSION} created with PKG attachments" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ Development Build" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No GitHub Release created (development environment)" >> $GITHUB_STEP_SUMMARY
+          fi
