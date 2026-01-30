@@ -70,42 +70,52 @@ func NewDataSender() *DataSender {
 }
 
 // CheckAndApplyRemoteConfig checks for remote config updates and applies them
+// This is called during data transmission, so it always fetches the config
+// to ensure update checks happen on every transmission cycle
 func (ds *DataSender) CheckAndApplyRemoteConfig() {
 	if ds.configPoller == nil {
 		return
 	}
-	
-	// Fetch remote config if it's time to poll
-	if ds.configPoller.ShouldPoll() {
-		log.Println("Checking for remote configuration updates...")
-		remoteConfig, err := ds.configPoller.FetchConfig()
-		if err != nil {
-			log.Printf("Error fetching remote config: %v", err)
+
+	// Always fetch remote config during data transmission to ensure update checks
+	log.Println("Checking for remote configuration updates...")
+	remoteConfig, err := ds.configPoller.FetchConfig()
+	if err != nil {
+		log.Printf("Error fetching remote config: %v", err)
+		// Even if fetch fails, try to use cached config for update check
+		remoteConfig = ds.configPoller.GetCurrentConfig()
+		if remoteConfig == nil {
 			return
 		}
-		
-		// Apply remote config settings
-		if remoteConfig != nil {
-			// Update interval if changed
-			if remoteConfig.IntervalMinutes > 0 && remoteConfig.IntervalMinutes != ds.intervalMinutes {
-				log.Printf("Remote config: Updating interval from %d to %d minutes", 
-					ds.intervalMinutes, remoteConfig.IntervalMinutes)
-				ds.intervalMinutes = remoteConfig.IntervalMinutes
+		log.Printf("Using cached remote config for update check")
+	}
+
+	// Apply remote config settings
+	if remoteConfig != nil {
+		// Update interval if changed
+		if remoteConfig.IntervalMinutes > 0 && remoteConfig.IntervalMinutes != ds.intervalMinutes {
+			log.Printf("Remote config: Updating interval from %d to %d minutes",
+				ds.intervalMinutes, remoteConfig.IntervalMinutes)
+			ds.intervalMinutes = remoteConfig.IntervalMinutes
+		}
+
+		// Update enabled status
+		ds.config.Enabled = remoteConfig.Enabled
+
+		// Execute any pending commands
+		ds.configPoller.ExecuteCommands()
+
+		// Check for updates (auto-update when new version detected)
+		if remoteConfig.LatestAgentVersion != "" && remoteConfig.UpdateMode != "disabled" {
+			log.Printf("Update check: current=%s, latest=%s, mode=%s",
+				GetAgentVersion(), remoteConfig.LatestAgentVersion, remoteConfig.UpdateMode)
+			updater := NewAutoUpdater(&ds.config)
+			if err := updater.CheckAndUpdate(remoteConfig); err != nil {
+				log.Printf("Auto-update error: %v", err)
 			}
-			
-			// Update enabled status
-			ds.config.Enabled = remoteConfig.Enabled
-			
-			// Execute any pending commands
-			ds.configPoller.ExecuteCommands()
-			
-			// Check for updates (auto-update when new version detected)
-			if remoteConfig.LatestAgentVersion != "" && remoteConfig.UpdateMode != "disabled" {
-				updater := NewAutoUpdater(&ds.config)
-				if err := updater.CheckAndUpdate(remoteConfig); err != nil {
-					log.Printf("Auto-update error: %v", err)
-				}
-			}
+		} else {
+			log.Printf("Update check skipped: latest_version=%q, mode=%q",
+				remoteConfig.LatestAgentVersion, remoteConfig.UpdateMode)
 		}
 	}
 }
