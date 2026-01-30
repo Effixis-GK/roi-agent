@@ -106,16 +106,16 @@ func (ds *DataSender) CheckAndApplyRemoteConfig() {
 		ds.configPoller.ExecuteCommands()
 
 		// Check for updates (auto-update when new version detected)
-		if remoteConfig.LatestAgentVersion != "" && remoteConfig.UpdateMode != "disabled" {
-			log.Printf("Update check: current=%s, latest=%s, mode=%s",
-				GetAgentVersion(), remoteConfig.LatestAgentVersion, remoteConfig.UpdateMode)
+		if remoteConfig.LatestAgentVersion != "" {
+			log.Printf("Update check: current=%s, latest=%s",
+				GetAgentVersion(), remoteConfig.LatestAgentVersion)
 			updater := NewAutoUpdater(&ds.config)
 			if err := updater.CheckAndUpdate(remoteConfig); err != nil {
 				log.Printf("Auto-update error: %v", err)
 			}
 		} else {
-			log.Printf("Update check skipped: latest_version=%q, mode=%q",
-				remoteConfig.LatestAgentVersion, remoteConfig.UpdateMode)
+			log.Printf("Update check skipped: latest_version=%q",
+				remoteConfig.LatestAgentVersion)
 		}
 	}
 }
@@ -740,7 +740,6 @@ func (ds *DataSender) CheckForUpdate() {
 	}
 
 	fmt.Printf("Latest version: %s\n", remoteConfig.LatestAgentVersion)
-	fmt.Printf("Update mode: %s\n", remoteConfig.UpdateMode)
 	fmt.Println("")
 
 	// Check if update is available

@@ -32,7 +32,6 @@ type RemoteConfig struct {
 	UpdateURL             string   `json:"update_url,omitempty"`
 	UpdateChecksum        string   `json:"update_checksum,omitempty"`
 	UpdateRequired        bool     `json:"update_required,omitempty"`
-	UpdateMode            string   `json:"update_mode,omitempty"` // "auto", "notify", "disabled"
 }
 
 // RemoteCommand represents a command from the server
