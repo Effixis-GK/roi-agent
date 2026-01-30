@@ -1812,15 +1812,20 @@ func (a *Agent) updateAppUsage() {
 			appData.LastSeen = currentTime
 			appData.ForegroundTime += interval
 
-			if isFocused {
+			// Only count focus time when user is actively using the system
+			// (not idle for more than 60 seconds)
+			if isFocused && systemIdleTime < 60 {
 				appData.FocusTime += interval
 			}
 		} else {
 			focusTime := int64(0)
 			switchCount := 0
-			if isFocused {
+			// Only count focus time when user is actively using the system
+			if isFocused && systemIdleTime < 60 {
 				focusTime = interval
-				// New app gaining focus counts as a switch
+			}
+			// New app gaining focus counts as a switch (regardless of idle)
+			if isFocused {
 				if a.lastFocusedApp != "" && a.lastFocusedApp != appName {
 					switchCount = 1
 				}
