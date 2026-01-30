@@ -56,12 +56,6 @@ func (au *AutoUpdater) CheckAndUpdate(remoteConfig *RemoteConfig) error {
 		return nil
 	}
 
-	// Skip if update mode is disabled
-	if remoteConfig.UpdateMode == "disabled" {
-		log.Printf("Auto-update is disabled")
-		return nil
-	}
-
 	// Check if update is needed
 	if !au.shouldUpdate(remoteConfig) {
 		log.Printf("Agent is up to date (current: %s, latest: %s)",
@@ -71,14 +65,7 @@ func (au *AutoUpdater) CheckAndUpdate(remoteConfig *RemoteConfig) error {
 
 	log.Printf("Update available: %s -> %s", au.currentVersion, remoteConfig.LatestAgentVersion)
 
-	// Check update mode
-	if remoteConfig.UpdateMode == "notify" {
-		log.Printf("Update mode is 'notify' - skipping automatic update, notifying user")
-		// TODO: Show notification to user
-		return nil
-	}
-
-	// Proceed with auto update (mode is "auto" or update is required)
+	// Proceed with auto update
 	if remoteConfig.UpdateRequired {
 		log.Printf("REQUIRED update detected - proceeding immediately")
 	}
@@ -401,7 +388,6 @@ func (au *AutoUpdater) ForceUpdate(updateURL, checksum string) error {
 		LatestAgentVersion: "forced",
 		UpdateURL:          updateURL,
 		UpdateChecksum:     checksum,
-		UpdateMode:         "auto",
 		UpdateRequired:     true,
 	}
 	return au.performUpdate(rc)
